@@ -691,7 +691,38 @@ body, .stApp {
     margin-top: 0.1rem;
 }
 
-/* ── section headings (sidebar panels) ── */
+/* ── competition day box ── */
+.info-day-box {
+    background: linear-gradient(135deg, #0033A0 0%, #004CC7 100%);
+    border-radius: 10px;
+    padding: 1.1rem 1rem;
+    margin-bottom: 1.2rem;
+    text-align: center;
+}
+.info-day-box .info-day-label {
+    font-family: 'Segoe UI', system-ui, sans-serif;
+    font-size: 0.68rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    color: rgba(255,255,255,0.7);
+    margin-bottom: 0.2rem;
+}
+.info-day-box .info-day-num {
+    font-family: 'Georgia', serif;
+    font-size: 2rem;
+    font-weight: 700;
+    color: #FFFFFF;
+    line-height: 1.1;
+}
+.info-day-box .info-day-date {
+    font-family: 'Segoe UI', system-ui, sans-serif;
+    font-size: 0.78rem;
+    color: rgba(255,255,255,0.8);
+    margin-top: 0.25rem;
+}
+
+/* ── section headings ── */
 .sidebar-heading {
     color: #0A1929;
     font-size: 0.78rem;
@@ -755,22 +786,6 @@ body, .stApp {
 }
 .medal-num:last-child { border-right: none; }
 .medal-total { color: #0033A0; }
-
-/* ── log panel ── */
-.log-panel {
-    background: #F4F6F6;
-    border: 1px solid #E8ECEE;
-    border-radius: 8px;
-    padding: 0.5rem 0.6rem;
-    max-height: 160px;
-    overflow-y: auto;
-    font-family: 'Consolas', 'Courier New', monospace;
-    font-size: 0.64rem;
-    color: #0A1929;
-    line-height: 1.5;
-}
-.log-panel .log-err  { color: #C0392B; }
-.log-panel .log-warn { color: #B7600A; }
 
 /* ── dividers ── */
 hr { border-color: #E8ECEE !important; margin: 0.7rem 0 !important; }
@@ -856,30 +871,17 @@ def render_bubbles(response_text: str):
 def main():
     st.markdown(CSS, unsafe_allow_html=True)
 
-    # ── language toggle ──
+    # ── session init ──
     if "lang" not in st.session_state:
         st.session_state["lang"] = "EN"
     if "input_gen" not in st.session_state:
-        st.session_state["input_gen"] = 0       # bumped after each pill-driven query to reset input
+        st.session_state["input_gen"] = 0
+    if "history" not in st.session_state:
+        st.session_state["history"] = []
 
     active_lang = st.session_state["lang"]
 
-    # language dropdown — top-right, compact
-    lang_options = {"EN": "🇬🇧 English", "FR": "🇫🇷 Français", "IT": "🇮🇹 Italiano"}
-    lang_col = st.columns([3, 1])[1]          # right-aligned narrow column
-    selected = lang_col.selectbox(
-        "Language",
-        options=list(lang_options.keys()),
-        format_func=lambda k: lang_options[k],
-        index=list(lang_options.keys()).index(active_lang),
-        key="lang_select",
-        label_visibility="collapsed"
-    )
-    if selected != active_lang:
-        st.session_state["lang"] = selected
-        st.rerun()
-
-    # ── header ──
+    # ── header (full width, above columns) ──
     title_html = t("header_title").replace("MILAN 2026", '<span class="blue">MILAN 2026</span>')
     st.markdown(
         f'<div class="header-band">'
@@ -891,29 +893,22 @@ def main():
 
     # ── live data ──
     medal_df, medal_time, medal_err = fetch_live_medals()
-    vector_count = get_pinecone_vector_count()
 
-    # ── 3-column layout: chat | medals | sidebar ──
-    chat_col, medal_col, side_col = st.columns([2.2, 1.1, 1], gap="small")
+    # ── two-column layout ──
+    chat_col, info_col = st.columns([1.7, 1], gap="large")
 
-    # ─────────── CHAT ───────────
+    # ═══════════════════════════════════════════════
+    # COLUMN 1 — CONVERSATION
+    # ═══════════════════════════════════════════════
     with chat_col:
-        if "history" not in st.session_state:
-            st.session_state["history"] = []
-
-        # suggestion pills — schedule pill is dynamic
+        # suggestion pills
         today = datetime.now()
-        games_start = datetime(2026, 2, 6)
-        games_end   = datetime(2026, 2, 22, 23, 59)
+        games_start  = datetime(2026, 2, 6)
+        games_end    = datetime(2026, 2, 22, 23, 59)
         during_games = games_start <= today <= games_end
 
-        # Build pill list: static pills + one dynamic schedule pill
-        # pill_label = what the button shows, pill_query = what gets sent to LLM
-        static_pills = t("suggestions_static")   # 3 items
-        pills = []                               # list of (label, query)
-        for s in static_pills:
-            pills.append((s, s))
-
+        static_pills = t("suggestions_static")
+        pills = [(s, s) for s in static_pills]
         if during_games:
             pills.insert(2, (t("suggestion_schedule"),
                              t("suggestion_schedule_query").format(date=today.strftime("%B %d"))))
@@ -934,7 +929,7 @@ def main():
         # pop pending before input
         pending = st.session_state.pop("pending_query", "")
 
-        # input — key includes input_gen so bumping it creates a fresh widget
+        # input
         input_key = f"main_input_{st.session_state['input_gen']}"
         typed = st.text_input(
             t("input_label"),
@@ -944,10 +939,9 @@ def main():
             max_chars=300
         )
 
-        # pending wins (pill click); otherwise typed
         query = pending if pending else typed
 
-        # process
+        # process query
         if query and query.strip():
             log_and_show("info", f"Query [{active_lang}]: {query}")
             with st.spinner(t("spinner_text")):
@@ -965,7 +959,6 @@ def main():
                 "lang":     active_lang
             })
 
-            # bump gen to kill the current input widget and spawn a blank one
             if pending:
                 st.session_state["input_gen"] += 1
                 st.rerun()
@@ -973,20 +966,56 @@ def main():
         # chat history (newest first)
         for turn in reversed(st.session_state.get("history", [])):
             st.markdown(
-                f'<div class="user-meta">🕐 {turn["time"]} · {turn["chunks"]} chunks · {turn["lang"]}</div>',
+                f'<div class="user-meta">🕐 {turn["time"]} · {turn["lang"]}</div>',
                 unsafe_allow_html=True
             )
             st.markdown(
-                f'<div class="user-bubble">🗨️ {turn["query"]}</div>',
+                f'<div class="user-bubble">{turn["query"]}</div>',
                 unsafe_allow_html=True
             )
             render_bubbles(turn["response"])
             st.markdown("<hr/>", unsafe_allow_html=True)
 
-    # ─────────── MEDAL TABLE ───────────
-    with medal_col:
+    # ═══════════════════════════════════════════════
+    # COLUMN 2 — INFO PANEL
+    # ═══════════════════════════════════════════════
+    with info_col:
+
+        # ── Competition Day & Date ──
+        if during_games:
+            day_num = (today - games_start).days + 1
+            date_str = today.strftime("%A, %B %d")
+            st.markdown(
+                f'<div class="info-day-box">'
+                f'<div class="info-day-label">Competition Day</div>'
+                f'<div class="info-day-num">Day {day_num}</div>'
+                f'<div class="info-day-date">{date_str}</div>'
+                f'</div>',
+                unsafe_allow_html=True
+            )
+        else:
+            if today < games_start:
+                countdown = (games_start - today).days
+                st.markdown(
+                    f'<div class="info-day-box">'
+                    f'<div class="info-day-label">Milano Cortina 2026</div>'
+                    f'<div class="info-day-num">{countdown} days</div>'
+                    f'<div class="info-day-date">Until the Games begin</div>'
+                    f'</div>',
+                    unsafe_allow_html=True
+                )
+            else:
+                st.markdown(
+                    f'<div class="info-day-box">'
+                    f'<div class="info-day-label">Milano Cortina 2026</div>'
+                    f'<div class="info-day-num">Finished</div>'
+                    f'<div class="info-day-date">Feb 6 – Feb 22, 2026</div>'
+                    f'</div>',
+                    unsafe_allow_html=True
+                )
+
+        # ── Medal Standings ──
         st.markdown(f'<div class="sidebar-heading">🏅 {t("standings_title")}</div>', unsafe_allow_html=True)
-        st.caption(t("fetched_at").format(time=medal_time))
 
         if medal_df is not None and not medal_df.empty:
             # normalize columns
@@ -1002,7 +1031,7 @@ def main():
             medal_df = medal_df.rename(columns=col_map)
 
             keep = [c for c in ["Country", "Gold", "Silver", "Bronze", "Total"] if c in medal_df.columns]
-            # Strip footer / summary rows Wikipedia includes
+            # strip footer / summary rows
             if "Country" in medal_df.columns:
                 mask = medal_df["Country"].astype(str).apply(
                     lambda x: (
@@ -1037,9 +1066,9 @@ def main():
                 '<table class="medal-table">'
                 '<thead><tr>'
                 '<th class="medal-th medal-th-country">Country</th>'
-                '<th class="medal-th medal-th-gold">Gold</th>'
-                '<th class="medal-th medal-th-silver">Silver</th>'
-                '<th class="medal-th medal-th-bronze">Bronze</th>'
+                '<th class="medal-th medal-th-gold">🥇</th>'
+                '<th class="medal-th medal-th-silver">🥈</th>'
+                '<th class="medal-th medal-th-bronze">🥉</th>'
                 '<th class="medal-th medal-th-total">Total</th>'
                 '</tr></thead>'
                 f'<tbody>{rows_html}</tbody>'
@@ -1047,13 +1076,9 @@ def main():
             )
             st.markdown(table_html, unsafe_allow_html=True)
         else:
-            st.info(medal_err or t("games_not_started"))
+            st.caption(medal_err or t("games_not_started"))
 
-    # ─────────── SIDEBAR (stats + log + about) ───────────
-    with side_col:
-        # ── compact horizontal stat row ──
-        vc = f"{vector_count:,}" if vector_count else "—"
-
+        # ── Medals Awarded + Athletes Tracked ──
         total_medals = "—"
         if medal_df is not None and not medal_df.empty:
             for cn in ["Total", "total"]:
@@ -1065,34 +1090,36 @@ def main():
                     break
 
         st.markdown(
-            f'''<div class="stat-row">
-                <div class="stat-card"><div class="stat-val">{vc}</div>
-                    <div class="stat-label">{t("vectors_label")}</div></div>
-                <div class="stat-card"><div class="stat-val">{total_medals}</div>
-                    <div class="stat-label">{t("medals_label")}</div></div>
-                <div class="stat-card"><div class="stat-val">407</div>
-                    <div class="stat-label">{t("athletes_label")}</div></div>
-            </div>''',
+            f'<div class="stat-row">'
+            f'<div class="stat-card">'
+            f'<div class="stat-val">{total_medals}</div>'
+            f'<div class="stat-label">{t("medals_label")}</div></div>'
+            f'<div class="stat-card">'
+            f'<div class="stat-val">407</div>'
+            f'<div class="stat-label">{t("athletes_label")}</div></div>'
+            f'</div>',
             unsafe_allow_html=True
         )
 
-        # log — collapsed expander so it doesn't eat space
-        with st.expander(f"🔧 {t('log_title')}", expanded=False):
-            entries = st.session_state.get("log_entries", [])
-            if entries:
-                html = '<div class="log-panel">'
-                for e in reversed(entries[-20:]):
-                    css = "log-err" if "[ERROR]" in e else ("log-warn" if "[WARNING]" in e else "")
-                    html += f'<div class="{css}">{e}</div>'
-                html += "</div>"
-                st.markdown(html, unsafe_allow_html=True)
-            else:
-                st.caption(t("log_empty"))
-
-        # about
+        # ── About ──
         st.markdown("---")
         st.markdown(f'<div class="sidebar-heading">{t("about_title")}</div>', unsafe_allow_html=True)
         st.markdown(t("about_text"))
+
+        # ── Language toggle (bottom of info panel) ──
+        st.markdown("---")
+        lang_options = {"EN": "🇬🇧 English", "FR": "🇫🇷 Français", "IT": "🇮🇹 Italiano"}
+        selected = st.selectbox(
+            "Language",
+            options=list(lang_options.keys()),
+            format_func=lambda k: lang_options[k],
+            index=list(lang_options.keys()).index(active_lang),
+            key="lang_select",
+            label_visibility="collapsed"
+        )
+        if selected != active_lang:
+            st.session_state["lang"] = selected
+            st.rerun()
 
 
 if __name__ == "__main__":
