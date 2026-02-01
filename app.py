@@ -601,6 +601,37 @@ body, .stApp {
     font-family: 'Segoe UI', system-ui, sans-serif;
 }
 
+/* ── language selectbox ── */
+.stSelectbox select,
+.stSelectbox [data-baseweb="select"] {
+    font-family: 'Segoe UI', system-ui, sans-serif !important;
+    font-size: 0.78rem !important;
+    font-weight: 600 !important;
+    color: #0A1929 !important;
+    background: #FFFFFF !important;
+    border: 1.5px solid #E8ECEE !important;
+    border-radius: 6px !important;
+    padding: 0.3rem 0.6rem !important;
+    min-height: 36px !important;
+    cursor: pointer !important;
+}
+.stSelectbox [data-baseweb="select"]:hover {
+    border-color: #0033A0 !important;
+}
+.stSelectbox [data-baseweb="select"]:focus-within {
+    border-color: #0033A0 !important;
+    box-shadow: 0 0 0 2px rgba(0,51,160,0.15) !important;
+}
+/* dropdown menu items */
+[data-baseweb="menu"] li {
+    font-family: 'Segoe UI', system-ui, sans-serif !important;
+    font-size: 0.78rem !important;
+    color: #0A1929 !important;
+}
+[data-baseweb="menu"] li:hover {
+    background: #F0F4FF !important;
+}
+
 /* ── text input ── */
 .stTextInput input {
     background: #FFFFFF !important;
@@ -780,8 +811,8 @@ def render_bubbles(response_text: str):
         if not line:
             continue
         upper = line.upper()
-        is_tyler = upper.startswith("TYLER") or line.startswith("\U0001f1fa\U0001f1f8")
-        is_sasha = upper.startswith("SASHA") or line.startswith("\U0001f1f7\U0001f1fa")
+        is_tyler = upper.startswith("TYLER") or line.startswith("🇺🇸")
+        is_sasha = upper.startswith("SASHA") or line.startswith("🇷🇺")
 
         if is_tyler or is_sasha:
             commit()
@@ -808,13 +839,13 @@ def render_bubbles(response_text: str):
         if speaker == "tyler":
             st.markdown(
                 f'<div class="bubble bubble-tyler">'
-                f'<div class="speaker">\U0001f1fa\U0001f1f8 Tyler</div>{body}</div>',
+                f'<div class="speaker">🇺🇸 Tyler</div>{body}</div>',
                 unsafe_allow_html=True
             )
         else:
             st.markdown(
                 f'<div class="bubble bubble-sasha">'
-                f'<div class="speaker">\U0001f1f7\U0001f1fa Sasha</div>{body}</div>',
+                f'<div class="speaker">🇷🇺 Sasha</div>{body}</div>',
                 unsafe_allow_html=True
             )
 
@@ -832,12 +863,21 @@ def main():
         st.session_state["input_gen"] = 0       # bumped after each pill-driven query to reset input
 
     active_lang = st.session_state["lang"]
-    lang_cols   = st.columns(5)
 
-    for i, (code, label) in enumerate([("EN","🇬🇧 EN"), ("FR","🇫🇷 FR"), ("IT","🇮🇹 IT")]):
-        if lang_cols[i].button(label, key=f"lang_{code}", use_container_width=True):
-            st.session_state["lang"] = code
-            st.rerun()
+    # language dropdown — top-right, compact
+    lang_options = {"EN": "🇬🇧 English", "FR": "🇫🇷 Français", "IT": "🇮🇹 Italiano"}
+    lang_col = st.columns([3, 1])[1]          # right-aligned narrow column
+    selected = lang_col.selectbox(
+        "Language",
+        options=list(lang_options.keys()),
+        format_func=lambda k: lang_options[k],
+        index=list(lang_options.keys()).index(active_lang),
+        key="lang_select",
+        label_visibility="collapsed"
+    )
+    if selected != active_lang:
+        st.session_state["lang"] = selected
+        st.rerun()
 
     # ── header ──
     title_html = t("header_title").replace("MILAN 2026", '<span class="blue">MILAN 2026</span>')
