@@ -9,7 +9,7 @@ Secrets: PINECONE_API_KEY, HF_TOKEN  (in .streamlit/secrets.toml)
 Architecture:
   Pinecone              -> semantic search (athletes / history / storylines / schedule)
   SentenceTransformers  -> FREE local embeddings (all-MiniLM-L6-v2, 384-dim)
-  HuggingFace Inference -> Qwen2.5-3B-Instruct, serverless, no GPU needed
+  HuggingFace Inference -> Qwen2.5-7B-Instruct, serverless, no GPU needed
   Wikipedia API         -> live medal table (15-min TTL cache)
   i18n                  -> EN / FR / IT language toggle (UI + LLM output)
   Logging               -> file (app.log) + session sidebar panel
@@ -196,13 +196,18 @@ def load_pinecone_index():
 
 @st.cache_resource
 def load_hf_client():
-    client = InferenceClient(
-        model="Qwen/Qwen2.5-3B-Instruct",
-        token=HF_TOKEN,
-        provider="together"
-    )
-    logger.info("HuggingFace InferenceClient ready (Qwen2.5-3B-Instruct via Together AI).")
-    return client
+    try:
+        client = InferenceClient(
+            model="Qwen/Qwen2.5-7B-Instruct",
+            token=HF_TOKEN,
+            provider="together"
+        )
+        logger.info("HuggingFace InferenceClient ready (Qwen2.5-7B-Instruct via Together AI).")
+        return client
+    except Exception as e:
+        logger.error(f"HuggingFace client init failed: {e}", exc_info=True)
+        st.error(f"Failed to initialize HuggingFace client: {e}")
+        return None
 
 
 embedding_model = load_embedding_model()
@@ -308,17 +313,21 @@ def build_system_prompt(lang: str) -> str:
 # =========================================================
 def retrieve_context(query: str, top_k: int = 7) -> list:
     logger.info(f"Query: '{query}'")
-    t0      = time.time()
-    vec     = embedding_model.encode(query).tolist()
-    results = pinecone_index.query(vector=vec, top_k=top_k, include_metadata=True)
-    matches = results.get("matches", [])
-    elapsed = time.time() - t0
-    logger.info(f"Retrieved {len(matches)} chunks in {elapsed:.2f}s")
-    for i, m in enumerate(matches):
-        meta  = m.get("metadata", {})
-        label = meta.get("name", meta.get("event", meta.get("moment", meta.get("storyline", ""))))
-        logger.info(f"  [{i+1}] {meta.get('doc_type','?')} | {label} | score={m.get('score',0):.3f}")
-    return matches
+    t0 = time.time()
+    try:
+        vec     = embedding_model.encode(query).tolist()
+        results = pinecone_index.query(vector=vec, top_k=top_k, include_metadata=True)
+        matches = results.get("matches", [])
+        elapsed = time.time() - t0
+        logger.info(f"Retrieved {len(matches)} chunks in {elapsed:.2f}s")
+        for i, m in enumerate(matches):
+            meta  = m.get("metadata", {})
+            label = meta.get("name", meta.get("event", meta.get("moment", meta.get("storyline", ""))))
+            logger.info(f"  [{i+1}] {meta.get('doc_type','?')} | {label} | score={m.get('score',0):.3f}")
+        return matches
+    except Exception as e:
+        logger.error(f"Retrieval failed: {e}", exc_info=True)
+        return []
 
 
 def format_context_for_llm(matches: list, medal_df) -> str:
@@ -338,15 +347,21 @@ def format_context_for_llm(matches: list, medal_df) -> str:
 
 
 # =========================================================
-# 9. GENERATION — Qwen2.5-3B-Instruct via HuggingFace
+# 9. GENERATION — Qwen2.5-7B-Instruct via HuggingFace / Together AI
 #    Serverless inference. No GPU needed locally.
 #    Free tier: ~few hundred req/hr. PRO ($9/mo): 20x more.
 #    Multilingual (29 langs incl EN/FR/IT). Strong structured output.
 # =========================================================
-MODEL_ID = "Qwen/Qwen2.5-3B-Instruct"
+MODEL_ID = "Qwen/Qwen2.5-7B-Instruct"
 
 
 def generate_response(user_query: str, context_text: str, lang: str) -> str:
+    if hf_client is None:
+        logger.error("generate_response called but hf_client is None — init must have failed.")
+        return (
+            "TYLER: Uh… something went wrong on our end.\n\n"
+            "SASHA: The broadcast feed dropped. Try again."
+        )
     logger.info(f"Calling {MODEL_ID} via HuggingFace…")
     t0 = time.time()
     try:
@@ -378,7 +393,7 @@ def generate_response(user_query: str, context_text: str, lang: str) -> str:
         return text
 
     except Exception as e:
-        logger.error(f"HuggingFace inference error: {e}")
+        logger.error(f"HuggingFace inference error: {e}", exc_info=True)
         return (
             "TYLER: Uh… something went wrong on our end.\n\n"
             "SASHA: The broadcast feed dropped. Try again."
@@ -390,17 +405,26 @@ def generate_response(user_query: str, context_text: str, lang: str) -> str:
 # =========================================================
 CSS = """
 <style>
+/*
+ * MILAN 2026 BRAND PALETTE
+ * Primary:   Magenta  #ff00ff
+ * Accent 1:  Red      #DF0024
+ * Accent 2:  Green    #009F3D
+ * Base:      White    #FFFFFF
+ * Dark tints derived for backgrounds (brand colors at low opacity over black)
+ */
+
 body, .stApp {
-    background: #0d1b2a;
-    color: #c9d6df;
+    background: #1a0a1a;          /* deep magenta-tinted black */
+    color: #e8e0e8;
     font-family: 'Segoe UI', system-ui, sans-serif;
 }
 .block-container { padding-top: 0.9rem; padding-bottom: 0.7rem; max-width: 1180px; }
 
 /* header */
 .header-band {
-    background: linear-gradient(135deg, #0a1628 0%, #162a45 50%, #0a1628 100%);
-    border-bottom: 2px solid #1e3a5f;
+    background: linear-gradient(135deg, #1a0a1a 0%, #2d0a2d 40%, #1f0c0c 70%, #0a1a0a 100%);
+    border-bottom: 3px solid #ff00ff;
     padding: 1.1rem 1.4rem;
     text-align: center;
     position: relative; overflow: hidden;
@@ -410,16 +434,17 @@ body, .stApp {
     position: absolute; inset: 0;
     background: repeating-linear-gradient(
         90deg, transparent, transparent 58px,
-        rgba(30,90,140,0.07) 58px, rgba(30,90,140,0.07) 59px
+        rgba(255,0,255,0.06) 58px, rgba(255,0,255,0.06) 59px
     );
     pointer-events: none;
 }
 .header-band h1 {
     margin: 0; font-size: 1.85rem; font-weight: 700;
-    color: #fff; letter-spacing: 0.07em; position: relative;
+    color: #FFFFFF; letter-spacing: 0.07em; position: relative;
+    text-shadow: 0 0 18px rgba(255,0,255,0.35);
 }
 .header-band .tagline {
-    color: #6a9cc6; font-size: 0.85rem;
+    color: #ff66ff; font-size: 0.85rem;
     margin-top: 0.18rem; font-style: italic; position: relative;
 }
 
@@ -437,73 +462,73 @@ body, .stApp {
     to   { opacity: 1; transform: translateY(0); }
 }
 .bubble-tyler {
-    background: linear-gradient(135deg, #162d4a, #1e3a5c);
-    border-left: 3px solid #e8a838;
+    background: linear-gradient(135deg, #1a0a0a, #2a1010);
+    border-left: 3px solid #DF0024;
 }
 .bubble-sasha {
-    background: linear-gradient(135deg, #2a1b30, #3a2545);
-    border-left: 3px solid #c94040;
+    background: linear-gradient(135deg, #0a1a0a, #101f10);
+    border-left: 3px solid #009F3D;
 }
 .bubble .speaker {
     font-weight: 700; font-size: 0.73rem;
     letter-spacing: 0.09em; text-transform: uppercase;
     margin-bottom: 0.2rem;
 }
-.bubble-tyler .speaker { color: #e8a838; }
-.bubble-sasha .speaker { color: #c94040; }
+.bubble-tyler .speaker { color: #DF0024; }
+.bubble-sasha .speaker { color: #009F3D; }
 
 /* user bubble */
 .user-bubble {
-    background: #1a2d4a; border-radius: 8px;
+    background: #2d0a2d; border-radius: 8px;
     padding: 0.45rem 0.8rem; margin-bottom: 0.35rem;
-    text-align: right; color: #b8cfe0; font-size: 0.86rem;
-    border-right: 3px solid #3a7cc6;
+    text-align: right; color: #e0d0e0; font-size: 0.86rem;
+    border-right: 3px solid #ff00ff;
 }
-.user-meta { color: #4a7fa5; font-size: 0.7rem; text-align: right; margin-bottom: 0.08rem; }
+.user-meta { color: #ff66ff; font-size: 0.7rem; text-align: right; margin-bottom: 0.08rem; }
 
 /* input */
 .stTextInput input {
-    background: #152535 !important;
-    border: 1px solid #2a4a6b !important;
-    color: #e8edf2 !important;
+    background: #2d0a2d !important;
+    border: 1px solid #ff00ff !important;
+    color: #FFFFFF !important;
     border-radius: 8px !important;
     font-size: 0.9rem !important;
 }
-.stTextInput label { color: #6a9cc6 !important; font-size: 0.8rem !important; }
+.stTextInput label { color: #ff66ff !important; font-size: 0.8rem !important; }
 
 /* stat cards */
 .stat-card {
-    background: #152535; border: 1px solid #1e3a5f;
+    background: #1f0c0c; border: 1px solid #DF0024;
     border-radius: 10px; padding: 0.55rem 0.7rem;
     margin-bottom: 0.45rem; text-align: center;
 }
-.stat-card .stat-val   { font-size: 1.45rem; font-weight: 700; color: #fff; }
-.stat-card .stat-label { font-size: 0.66rem; color: #5a8aad; text-transform: uppercase; letter-spacing: 0.07em; }
+.stat-card .stat-val   { font-size: 1.45rem; font-weight: 700; color: #FFFFFF; }
+.stat-card .stat-label { font-size: 0.66rem; color: #ff66ff; text-transform: uppercase; letter-spacing: 0.07em; }
 
 /* log panel */
 .log-panel {
-    background: #0b1520; border: 1px solid #1a3045;
+    background: #120a12; border: 1px solid #3d003d;
     border-radius: 8px; padding: 0.55rem;
     max-height: 190px; overflow-y: auto;
     font-family: 'Consolas', 'Courier New', monospace;
-    font-size: 0.66rem; color: #4a7a9a; line-height: 1.4;
+    font-size: 0.66rem; color: #a070a0; line-height: 1.4;
 }
-.log-panel .log-err  { color: #d65555; }
-.log-panel .log-warn { color: #c9963a; }
+.log-panel .log-err  { color: #DF0024; }
+.log-panel .log-warn { color: #ff66ff; }
 
 /* buttons override for pills + lang */
 .stButton button {
-    background: #152d46 !important;
-    border: 1px solid #2a4f72 !important;
-    color: #7aadcf !important;
+    background: #2d0a2d !important;
+    border: 1px solid #ff00ff !important;
+    color: #ff66ff !important;
     border-radius: 18px !important;
     font-size: 0.74rem !important;
     padding: 0.25rem 0.6rem !important;
     transition: background 0.18s, color 0.18s !important;
 }
-.stButton button:hover { background: #1e3f5e !important; color: #fff !important; }
+.stButton button:hover { background: #4a1040 !important; color: #FFFFFF !important; }
 
-hr { border-color: #1a3045 !important; }
+hr { border-color: #3d003d !important; }
 </style>
 """
 
@@ -575,7 +600,7 @@ def main():
         # suggestion pills
         suggestions = t("suggestions")
         st.markdown(
-            f"<p style='color:#5a8aad;font-size:0.76rem;margin-bottom:0.25rem;'>{t('try_asking')}</p>",
+            f"<p style='color:#ff66ff;font-size:0.76rem;margin-bottom:0.25rem;'>{t('try_asking')}</p>",
             unsafe_allow_html=True
         )
         pill_cols = st.columns(len(suggestions), gap="small")
