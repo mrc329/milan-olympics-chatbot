@@ -278,16 +278,16 @@ DYNAMIC
 Fierce rivals 2014-2018. Now commentary partners. Unresolved tension leaks through — a pause, a look, an overly casual comment. They NEVER directly address their past, but it's always there. When they BOTH agree, it carries weight.
 
 FORMAT
-Always back-and-forth. Tyler first. Exactly like this:
+Each line must be exactly: SPEAKER: dialogue. No exceptions.
+Tyler always first. Like this, with no blank lines between:
 
-TYLER: [line]
-
-SASHA: [line]
-
+TYLER: [his line here]
+SASHA: [her line here]
 TYLER: [optional]
-
 SASHA: [optional]
 
+Do NOT put the speaker name on its own line.
+Do NOT use emoji flags. Just "TYLER:" or "SASHA:" then the text.
 2-4 exchanges max. Conversational. Let personality do the work.
 
 RULES
@@ -406,25 +406,32 @@ def generate_response(user_query: str, context_text: str, lang: str) -> str:
 CSS = """
 <style>
 /*
- * MILAN 2026 BRAND PALETTE
- * Primary:   Magenta  #ff00ff
- * Accent 1:  Red      #DF0024
- * Accent 2:  Green    #009F3D
- * Base:      White    #FFFFFF
- * Dark tints derived for backgrounds (brand colors at low opacity over black)
+ * OFFICIAL MILANO CORTINA 2026 BRAND PALETTE
+ * Source: olympics.com/en/milano-cortina-2026/brand + "Imagination Vibe"
+ *
+ * #001719  — Deep teal-black (site base text / our dark backgrounds)
+ * #0033A0  — Olympic Blue    (emblem gradient start)
+ * #00A651  — Olympic Green   (emblem gradient end)
+ * #FFFFFF  — White            (crisp base)
+ * #F4F6F6  — Snow white       (official page background / subtle highlights)
+ *
+ * The emblem is a blue→green gradient. The Look of the Games uses
+ * white flowing lines on dark. We mirror that: dark teal backgrounds,
+ * blue/green accents, white text.
  */
 
 body, .stApp {
-    background: #1a0a1a;          /* deep magenta-tinted black */
-    color: #e8e0e8;
+    background: #0a1214;          /* slightly lighter than #001719 for depth */
+    color: #F4F6F6;
     font-family: 'Segoe UI', system-ui, sans-serif;
 }
 .block-container { padding-top: 0.9rem; padding-bottom: 0.7rem; max-width: 1180px; }
 
-/* header */
+/* header — blue→green gradient border mirrors the emblem */
 .header-band {
-    background: linear-gradient(135deg, #1a0a1a 0%, #2d0a2d 40%, #1f0c0c 70%, #0a1a0a 100%);
-    border-bottom: 3px solid #ff00ff;
+    background: linear-gradient(135deg, #001719 0%, #0a2020 50%, #001719 100%);
+    border-bottom: 3px solid transparent;
+    border-image: linear-gradient(90deg, #0033A0, #00A651) 1;
     padding: 1.1rem 1.4rem;
     text-align: center;
     position: relative; overflow: hidden;
@@ -434,18 +441,22 @@ body, .stApp {
     position: absolute; inset: 0;
     background: repeating-linear-gradient(
         90deg, transparent, transparent 58px,
-        rgba(255,0,255,0.06) 58px, rgba(255,0,255,0.06) 59px
+        rgba(0,51,160,0.05) 58px, rgba(0,51,160,0.05) 59px
     );
     pointer-events: none;
 }
 .header-band h1 {
     margin: 0; font-size: 1.85rem; font-weight: 700;
     color: #FFFFFF; letter-spacing: 0.07em; position: relative;
-    text-shadow: 0 0 18px rgba(255,0,255,0.35);
+    background: linear-gradient(90deg, #FFFFFF 0%, #FFFFFF 60%, #00A651 100%);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
 }
 .header-band .tagline {
-    color: #ff66ff; font-size: 0.85rem;
+    color: #5ba3d9; font-size: 0.85rem;
     margin-top: 0.18rem; font-style: italic; position: relative;
+    -webkit-text-fill-color: #5ba3d9;
 }
 
 /* lang toggle */
@@ -461,74 +472,82 @@ body, .stApp {
     from { opacity: 0; transform: translateY(5px); }
     to   { opacity: 1; transform: translateY(0); }
 }
+/* Tyler = Olympic Blue */
 .bubble-tyler {
-    background: linear-gradient(135deg, #1a0a0a, #2a1010);
-    border-left: 3px solid #DF0024;
+    background: linear-gradient(135deg, #0a1a2e, #112240);
+    border-left: 3px solid #0033A0;
 }
+/* Sasha = Olympic Green */
 .bubble-sasha {
-    background: linear-gradient(135deg, #0a1a0a, #101f10);
-    border-left: 3px solid #009F3D;
+    background: linear-gradient(135deg, #0a1a14, #112a1c);
+    border-left: 3px solid #00A651;
 }
 .bubble .speaker {
     font-weight: 700; font-size: 0.73rem;
     letter-spacing: 0.09em; text-transform: uppercase;
     margin-bottom: 0.2rem;
 }
-.bubble-tyler .speaker { color: #DF0024; }
-.bubble-sasha .speaker { color: #009F3D; }
+.bubble-tyler .speaker { color: #4a8fd9; }
+.bubble-sasha .speaker { color: #3dcc7a; }
 
 /* user bubble */
 .user-bubble {
-    background: #2d0a2d; border-radius: 8px;
+    background: #0d2028; border-radius: 8px;
     padding: 0.45rem 0.8rem; margin-bottom: 0.35rem;
-    text-align: right; color: #e0d0e0; font-size: 0.86rem;
-    border-right: 3px solid #ff00ff;
+    text-align: right; color: #d0e8ee; font-size: 0.86rem;
+    border-right: 3px solid transparent;
+    border-image: linear-gradient(180deg, #0033A0, #00A651) 1;
+    border-image-slice: 1;
 }
-.user-meta { color: #ff66ff; font-size: 0.7rem; text-align: right; margin-bottom: 0.08rem; }
+.user-meta { color: #5ba3d9; font-size: 0.7rem; text-align: right; margin-bottom: 0.08rem; }
 
 /* input */
 .stTextInput input {
-    background: #2d0a2d !important;
-    border: 1px solid #ff00ff !important;
+    background: #0d2028 !important;
+    border: 1px solid #0033A0 !important;
     color: #FFFFFF !important;
     border-radius: 8px !important;
     font-size: 0.9rem !important;
 }
-.stTextInput label { color: #ff66ff !important; font-size: 0.8rem !important; }
+.stTextInput label { color: #5ba3d9 !important; font-size: 0.8rem !important; }
 
-/* stat cards */
+/* stat cards — subtle blue border */
 .stat-card {
-    background: #1f0c0c; border: 1px solid #DF0024;
+    background: #0d1f25; border: 1px solid #0033A0;
     border-radius: 10px; padding: 0.55rem 0.7rem;
     margin-bottom: 0.45rem; text-align: center;
 }
 .stat-card .stat-val   { font-size: 1.45rem; font-weight: 700; color: #FFFFFF; }
-.stat-card .stat-label { font-size: 0.66rem; color: #ff66ff; text-transform: uppercase; letter-spacing: 0.07em; }
+.stat-card .stat-label { font-size: 0.66rem; color: #5ba3d9; text-transform: uppercase; letter-spacing: 0.07em; }
 
 /* log panel */
 .log-panel {
-    background: #120a12; border: 1px solid #3d003d;
+    background: #071012; border: 1px solid #1a3540;
     border-radius: 8px; padding: 0.55rem;
     max-height: 190px; overflow-y: auto;
     font-family: 'Consolas', 'Courier New', monospace;
-    font-size: 0.66rem; color: #a070a0; line-height: 1.4;
+    font-size: 0.66rem; color: #4a8a9a; line-height: 1.4;
 }
-.log-panel .log-err  { color: #DF0024; }
-.log-panel .log-warn { color: #ff66ff; }
+.log-panel .log-err  { color: #e04040; }
+.log-panel .log-warn { color: #d4a030; }
 
-/* buttons override for pills + lang */
+/* buttons — blue border, green on hover */
 .stButton button {
-    background: #2d0a2d !important;
-    border: 1px solid #ff00ff !important;
-    color: #ff66ff !important;
+    background: #0d2028 !important;
+    border: 1px solid #0033A0 !important;
+    color: #5ba3d9 !important;
     border-radius: 18px !important;
     font-size: 0.74rem !important;
     padding: 0.25rem 0.6rem !important;
-    transition: background 0.18s, color 0.18s !important;
+    transition: background 0.18s, color 0.18s, border-color 0.18s !important;
 }
-.stButton button:hover { background: #4a1040 !important; color: #FFFFFF !important; }
+.stButton button:hover {
+    background: #0d2a1e !important;
+    border-color: #00A651 !important;
+    color: #FFFFFF !important;
+}
 
-hr { border-color: #3d003d !important; }
+hr { border-color: #1a3540 !important; }
 </style>
 """
 
@@ -537,25 +556,62 @@ hr { border-color: #3d003d !important; }
 # 11. RENDER HELPERS
 # =========================================================
 def render_bubbles(response_text: str):
-    for line in response_text.split("\n"):
-        line = line.strip()
-        if not line:
-            continue
-        upper = line.upper()
-        if "TYLER" in upper or line.startswith("🇺🇸"):
-            body = line.split(":", 1)[-1].strip() if ":" in line else line
+    """
+    Handles two output formats from the model:
+      Format A (ideal):  "TYLER: some dialogue here"
+      Format B (actual): "🇺🇸 Tyler\nsome dialogue here"
+    We detect speaker lines, then accumulate following non-speaker
+    lines as their body until the next speaker or end.
+    """
+    lines = [l.strip() for l in response_text.split("\n")]
+
+    current_speaker = None   # "tyler" | "sasha" | None
+    current_body    = []
+
+    def flush():
+        """Render whatever we've accumulated so far."""
+        if current_speaker is None or not current_body:
+            return
+        body_text = " ".join(current_body)
+        if current_speaker == "tyler":
             st.markdown(
                 f'<div class="bubble bubble-tyler">'
-                f'<div class="speaker">🇺🇸 Tyler</div>{body}</div>',
+                f'<div class="speaker">🇺🇸 Tyler</div>{body_text}</div>',
                 unsafe_allow_html=True
             )
-        elif "SASHA" in upper or line.startswith("🇷🇺"):
-            body = line.split(":", 1)[-1].strip() if ":" in line else line
+        else:
             st.markdown(
                 f'<div class="bubble bubble-sasha">'
-                f'<div class="speaker">🇷🇺 Sasha</div>{body}</div>',
+                f'<div class="speaker">🇷🇺 Sasha</div>{body_text}</div>',
                 unsafe_allow_html=True
             )
+
+    for line in lines:
+        if not line:
+            continue
+
+        upper = line.upper()
+
+        # Detect speaker line
+        is_tyler = "TYLER" in upper or line.startswith("🇺🇸")
+        is_sasha = "SASHA" in upper or line.startswith("🇷🇺")
+
+        if is_tyler or is_sasha:
+            flush()                                          # render previous speaker's bubble
+            current_speaker = "tyler" if is_tyler else "sasha"
+            current_body    = []
+            # Check if dialogue is on the same line after ":"
+            if ":" in line:
+                remainder = line.split(":", 1)[-1].strip()
+                if remainder:
+                    current_body.append(remainder)
+        else:
+            # Non-speaker line: either body text for current speaker, or orphan
+            if current_speaker:
+                current_body.append(line)
+            # else: orphan text before any speaker — silently drop
+
+    flush()  # render the last speaker's bubble
 
 
 # =========================================================
@@ -600,7 +656,7 @@ def main():
         # suggestion pills
         suggestions = t("suggestions")
         st.markdown(
-            f"<p style='color:#ff66ff;font-size:0.76rem;margin-bottom:0.25rem;'>{t('try_asking')}</p>",
+            f"<p style='color:#5ba3d9;font-size:0.76rem;margin-bottom:0.25rem;'>{t('try_asking')}</p>",
             unsafe_allow_html=True
         )
         pill_cols = st.columns(len(suggestions), gap="small")
