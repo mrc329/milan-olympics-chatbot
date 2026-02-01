@@ -564,15 +564,18 @@ def upsert_athlete(athlete: dict):
 
     text = "\n".join(sections)
 
-    upsert_document(vid, text, {
+    meta = {
         "doc_type":         "athlete",
         "name":             name,
         "favorite":         favorite,
         "scheduled_events": scheduled,
         "has_medal":        len(medal_lines) > 0,
-        "injury_risk":      injury_info["severity"] if injury_info else None,
         **freshness_metadata("wikipedia", "very_high"),
-    })
+    }
+    if injury_info:
+        meta["injury_risk"] = injury_info["severity"]
+
+    upsert_document(vid, text, meta)
 
 # ─────────────────────────────────────────────
 # UPSERT HELPERS — upsets
