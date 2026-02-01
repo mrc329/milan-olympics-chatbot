@@ -231,6 +231,9 @@ def fetch_live_medals():
                 "prop":   "text",
                 "format": "json"
             },
+            headers={
+                "User-Agent": "MilanoCortina2026Bot/1.0 (medal table fetch)"
+            },
             timeout=10
         )
         resp.raise_for_status()
@@ -427,11 +430,10 @@ body, .stApp {
 }
 .block-container { padding-top: 0.9rem; padding-bottom: 0.7rem; max-width: 1180px; }
 
-/* header — blue→green gradient border mirrors the emblem */
+/* header — bottom border uses blue (green shows via the gradient h1) */
 .header-band {
     background: linear-gradient(135deg, #001719 0%, #0a2020 50%, #001719 100%);
-    border-bottom: 3px solid transparent;
-    border-image: linear-gradient(90deg, #0033A0, #00A651) 1;
+    border-bottom: 3px solid #0033A0;
     padding: 1.1rem 1.4rem;
     text-align: center;
     position: relative; overflow: hidden;
@@ -495,9 +497,7 @@ body, .stApp {
     background: #0d2028; border-radius: 8px;
     padding: 0.45rem 0.8rem; margin-bottom: 0.35rem;
     text-align: right; color: #d0e8ee; font-size: 0.86rem;
-    border-right: 3px solid transparent;
-    border-image: linear-gradient(180deg, #0033A0, #00A651) 1;
-    border-image-slice: 1;
+    border-right: 3px solid #00A651;
 }
 .user-meta { color: #5ba3d9; font-size: 0.7rem; text-align: right; margin-bottom: 0.08rem; }
 
@@ -663,15 +663,22 @@ def main():
         for col, sug in zip(pill_cols, suggestions):
             if col.button(sug, use_container_width=True, key=f"pill_{hash(sug)}_{active_lang}"):
                 st.session_state["pending_query"] = sug
+                st.rerun()
+
+        # pop pending before input so pill clicks fire immediately
+        pending = st.session_state.pop("pending_query", "")
 
         # input
-        query = st.text_input(
+        typed = st.text_input(
             t("input_label"),
             placeholder=t("input_placeholder"),
             key="main_input",
-            value=st.session_state.pop("pending_query", ""),
+            value=pending,
             max_chars=300
         )
+
+        # pending wins (pill click); otherwise use whatever the user typed
+        query = pending if pending else typed
 
         # process
         if query and query.strip():
@@ -690,6 +697,11 @@ def main():
                 "chunks":   len(matches),
                 "lang":     active_lang
             })
+
+            # clear input so it doesn't re-fire on next rerun
+            if pending:
+                st.session_state["main_input"] = ""
+                st.rerun()
 
         # chat history (newest first)
         for turn in reversed(st.session_state.get("history", [])):
