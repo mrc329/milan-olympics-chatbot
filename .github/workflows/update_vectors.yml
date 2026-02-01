@@ -1,73 +1,48 @@
-# .github/workflows/update_vectors.yml
-#
-# Runs every 30 minutes during the Games (Feb 6–22, 2026).
-# Each run:
-#   1. Restores cached embedding model (~10s) — downloads only on first run
-#   2. Installs a minimal set of deps
-#   3. Runs pipeline_ci.py — checks Wikipedia for new event results
-#   4. Upserts anything new to Pinecone
-#   5. Logs everything to the Actions run log
-#
-# Secrets required (set in GitHub repo → Settings → Secrets):
-#   PINECONE_API_KEY
-#
-# Cost: ~384 Actions minutes for the full 16-day Games.
-#        Public repo = 2,000 min/month free. Plenty of headroom.
-
 name: Milan 2026 — Live Vector Update
 
 on:
   schedule:
-    # Every 30 minutes, all day, every day.
-    # The script itself checks the date and exits immediately
-    # if it's outside Feb 6–22, so no wasted compute outside the Games.
-    - cron: "*/30 * * * *"
-
-  # Also allows manual trigger from the Actions tab (useful for testing)
-  workflow_dispatch:
+    - cron: "*/30 * * * *"   # Every 30 minutes
+  workflow_dispatch:           # Manual trigger
 
 jobs:
   update:
     runs-on: ubuntu-latest
 
     steps:
-      # ── checkout ──
+      # ── Checkout code ──
       - name: Checkout
         uses: actions/checkout@v4
 
-      # ── Python ──
+      # ── Setup Python ──
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
           python-version: "3.11"
 
-      # ── cache the embedding model ──
-      # all-MiniLM-L6-v2 downloads to ~/.cache/torch/sentence_transformers/
-      # First run: cache miss → model downloads (~400 MB, ~30s)
-      # Every subsequent run: cache hit → restores in ~10s
+      # ── Run unit tests (pure stdlib — no deps, no Pinecone needed) ──
+      - name: Run tests
+        run: |
+          python -m unittest test_milan2026_pipeline -v
+
+      # ── Restore embedding model cache ──
       - name: Restore model cache
         uses: actions/cache@v4
         with:
           path: ~/.cache/torch/sentence_transformers
           key: sentence-transformers-all-MiniLM-L6-v2
 
-      # ── install deps ──
-      # Minimal set — not the full app requirements.
-      # sentence-transformers pulls in torch, which is the heavy one,
-      # but the model weights themselves come from the cache above.
+      # ── Install runtime dependencies ──
       - name: Install dependencies
         run: |
           pip install --quiet \
-            sentence-transformers \
             pinecone-client \
-            pandas \
-            requests \
-            lxml \
-            html5lib
+            sentence-transformers
 
-      # ── run the pipeline ──
-      - name: Run vector update
+      # ── Run the pipeline (connects to Pinecone, embeds, upserts) ──
+      - name: Run Milan 2026 Pipeline
         env:
           PINECONE_API_KEY: ${{ secrets.PINECONE_API_KEY }}
+          PIPELINE_LOG_LEVEL: INFO
         run: |
-          python pipeline_ci.py
+          python milan2026_pipeline.py
