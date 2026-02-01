@@ -260,6 +260,66 @@ def fetch_live_medals():
         return None, datetime.now().strftime("%I:%M %p"), str(e)
 
 
+def fetch_live_schedule():
+    """
+    Wikipedia programme page -> list of upcoming events with dates.
+    Returns (schedule_text: str | None, error: str | None).
+    schedule_text is a plain-text block ready to drop into LLM context.
+    """
+    logger.info("Fetching live schedule…")
+    try:
+        resp = requests.get(
+            "https://en.wikipedia.org/w/api.php",
+            params={
+                "action": "parse",
+                "page":   "2026_Winter_Olympics_programme",
+                "prop":   "text",
+                "format": "json"
+            },
+            headers={"User-Agent": "MilanoCortina2026Bot/1.0 (schedule fetch)"},
+            timeout=12
+        )
+        resp.raise_for_status()
+        html = resp.json().get("parse", {}).get("text", {}).get("*", "")
+
+        upcoming = []
+        for tbl in pd.read_html(html):
+            tbl.columns = [str(c).strip() for c in tbl.columns]
+
+            # Find a date-ish column and an event-ish column
+            date_col, event_col = None, None
+            for c in tbl.columns:
+                cl = c.lower()
+                if not date_col and any(kw in cl for kw in ["date", "day", "february", "feb"]):
+                    date_col = c
+                if not event_col and any(kw in cl for kw in ["event", "discipline", "sport", "competition"]):
+                    event_col = c
+
+            if date_col and event_col:
+                for _, row in tbl.iterrows():
+                    ev   = str(row[event_col]).strip()
+                    dt   = str(row[date_col]).strip()
+                    if ev.lower() in ("", "event", "discipline", "nan"):
+                        continue
+                    upcoming.append(f"{dt} — {ev}")
+
+        if upcoming:
+            seen, deduped = set(), []
+            for line in upcoming:
+                if line not in seen:
+                    seen.add(line)
+                    deduped.append(line)
+            logger.info(f"Schedule fetched — {len(deduped)} events")
+            return "\n".join(deduped[:30]), None
+
+        logger.warning("Schedule page exists but no event tables parsed.")
+        return None, "Schedule not yet available."
+
+    except Exception as e:
+        logger.error(f"Schedule fetch error: {e}")
+        return None, str(e)
+
+
 def get_pinecone_vector_count():
     """Uncached — always fresh."""
     try:
@@ -305,10 +365,11 @@ STRICT RULES — every single one applies:
 - No summary or sign-off line. End on a natural conversational beat, not a wrap-up.
 
 RULES
-- Use ONLY retrieved context. Do not invent athletes or results.
-- No context available? Tyler: "Uh..." / Sasha: "We have nothing on this."
+- Use ONLY retrieved context. Do not invent athletes, results, dates, or event schedules.
+- If asked about upcoming events or a schedule and no [UPCOMING EVENTS] block is in context, do NOT guess or make up dates. Instead: Tyler: "Uh, I actually don't have the schedule in front of me right now." / Sasha: "We don't have confirmed dates yet. Check back closer to game day."
+- No context available at all? Tyler: "Uh..." / Sasha: "We have nothing on this."
 - Tyler embellishes personality. Sasha sticks to facts.
-- Reference [LIVE CONTEXT] for medal counts or schedule data.
+- Reference [LIVE MEDAL STANDINGS] for medal counts. Reference [UPCOMING EVENTS] for schedule data. Never invent either.
 - Fun entertainment, not a textbook.
 """
 
@@ -357,6 +418,7 @@ def format_context_for_llm(matches: list, medal_df) -> str:
         parts.append("\n\n[LIVE MEDAL STANDINGS — current]")
         parts.append(medal_df.head(15).to_string(index=False))
 
+    # schedule is injected via session state — see call site
     return "\n".join(parts)
 
 
@@ -979,6 +1041,7 @@ def main():
 
     # ── live data ──
     medal_df, medal_time, medal_err = fetch_live_medals()
+    schedule_text, schedule_err      = fetch_live_schedule()
 
     # ── two-column layout ──
     chat_col, info_col = st.columns([1.7, 1], gap="large")
@@ -1026,6 +1089,8 @@ def main():
                 matches      = retrieve_context(query, top_k=7)
                 log_and_show("info", f"Retrieved {len(matches)} chunks")
                 context_text = format_context_for_llm(matches, medal_df)
+                if schedule_text:
+                    context_text += "\n\n[UPCOMING EVENTS — from Wikipedia]\n" + schedule_text
                 response     = generate_response(query, context_text, active_lang)
                 log_and_show("info", "Response generated.")
 
