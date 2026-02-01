@@ -366,7 +366,8 @@ STRICT RULES — every single one applies:
 
 RULES
 - Use ONLY retrieved context. Do not invent athletes, results, dates, or event schedules.
-- If asked about upcoming events or a schedule and no [UPCOMING EVENTS] block is in context, do NOT guess or make up dates. Instead: Tyler: "Uh, I actually don't have the schedule in front of me right now." / Sasha: "We don't have confirmed dates yet. Check back closer to game day."
+- SCHEDULE DATES: If you see chunks labeled "SCHEDULE: [event] on [date]", use EXACTLY those dates. Do NOT change, guess, or invent any dates. Every date you say must appear verbatim in a SCHEDULE chunk.
+- If asked about upcoming events and NO SCHEDULE chunks are in context, do NOT guess or make up dates. Instead: Tyler: "Uh, I actually don't have the schedule in front of me right now." / Sasha: "We don't have confirmed dates yet. Check back closer to game day."
 - No context available at all? Tyler: "Uh..." / Sasha: "We have nothing on this."
 - Tyler embellishes personality. Sasha sticks to facts.
 - Reference [LIVE MEDAL STANDINGS] for medal counts. Reference [UPCOMING EVENTS] for schedule data. Never invent either.
@@ -412,7 +413,17 @@ def format_context_for_llm(matches: list, medal_df) -> str:
         text  = meta.get("text", "")
         dtype = meta.get("doc_type", "?")
         score = m.get("score", 0)
-        parts.append(f"\n--- Chunk {i} (type={dtype}, relevance={score:.2f}) ---\n{text}")
+
+        # For schedule chunks, pull date + event into the header so the LLM
+        # can't miss them. A 7B model will skip dates buried in body text.
+        if dtype == "event_schedule":
+            date  = meta.get("date", "")
+            event = meta.get("event", "")
+            venue = meta.get("venue", "")
+            header = f"\n--- SCHEDULE: {event} on {date} at {venue} ---\n{text}"
+        else:
+            header = f"\n--- Chunk {i} (type={dtype}, relevance={score:.2f}) ---\n{text}"
+        parts.append(header)
 
     if medal_df is not None and not medal_df.empty:
         parts.append("\n\n[LIVE MEDAL STANDINGS — current]")
