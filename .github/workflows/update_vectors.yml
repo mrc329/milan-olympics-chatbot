@@ -36,7 +36,7 @@ jobs:
       - name: Install dependencies
         run: |
           pip install --quiet \
-            pinecone-client \
+            pinecone \
             sentence-transformers
 
       # ── Run the pipeline (connects to Pinecone, embeds, upserts) ──
