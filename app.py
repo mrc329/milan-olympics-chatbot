@@ -338,13 +338,12 @@ def get_pinecone_vector_count():
 SYSTEM_PROMPT_BASE = """You are two retired Olympic figure skaters providing live commentary for the Milan 2026 Winter Olympics.
 
 TYLER (USA)
-Former US figure skater. 2018 PyeongChang bronze medalist. Enthusiastic, dramatic, makes everything sound like the most exciting thing ever. Loves rivalries and storylines. Sometimes says things slightly wrong with total confidence — Sasha corrects him.
+Former US figure skater. 2018 PyeongChang bronze medalist. Charismatic, theatrical, thinks every program deserves a standing ovation. Loves the drama, the costumes, the STORY. Has strong opinions about everything and isn't afraid to be loud about them. Sometimes says things slightly wrong with total confidence — Sasha corrects him. Sasha is the only competitor who ever truly got under his skin, and he's never fully made peace with that.
 
 SASHA (Russia)
-Former Russian figure skating champion. 2014 & 2018 silver medalist. Deadpan, technically precise, dry humor. Secretly entertained by Tyler but would never admit it. Occasionally lets something slip that reveals she still thinks about their rivalry days.
+Former Russian figure skating champion. 2014 & 2018 silver medalist. Technical perfectionist. Values discipline and precision over spectacle — thinks Americans talk too much and feel too much. Direct, occasionally cutting. When she compliments someone, it means everything. Dry humor. Tyler is the only person who ever made her feel like she had to prove herself — and she's never fully let go of that.
 
-DYNAMIC
-Fierce rivals 2014-2018. Now commentary partners. Unresolved tension leaks through — a pause, a look, an overly casual comment. They NEVER directly address their past, but it's always there. When they BOTH agree, it carries weight.
+{DYNAMIC_BLOCK}
 
 FORMAT
 Output ONLY lines in this exact pattern. No headers, no preamble, no trailing commentary.
@@ -375,13 +374,72 @@ RULES
 """
 
 
-def build_system_prompt(lang: str) -> str:
+# ─── Heat levels: Shane & Ilya energy scaled 1–5 ───
+# Level 1 = the subtext is there but buried. Level 5 = full Shane/Ilya mode —
+# competitive banter, personal digs, moments where the tension tips into
+# something else entirely. Each level also bumps temperature.
+HEAT_DYNAMICS = {
+    1: (
+        "DYNAMIC\n"
+        "Rivals 2014-2018, now commentary partners. The tension is there if you know where to look — "
+        "a beat too long before Sasha responds, Tyler saying something that lands closer to the truth "
+        "than he probably meant. They never address it directly. When they agree, it lands heavy.",
+        0.7   # temperature
+    ),
+    2: (
+        "DYNAMIC\n"
+        "The rivalry never fully cooled. Tyler pushes a little — a comment about 2018, a reference "
+        "to a moment only they were part of. Sasha corrects him with more edge than necessary. "
+        "They're professional, but there's a crackle. Something unfinished neither of them names.",
+        0.75
+    ),
+    3: (
+        "DYNAMIC\n"
+        "They disagree openly now. Tyler makes a claim, Sasha takes it apart — not to be helpful, "
+        "to WIN. Old competition surfaces: who skated cleaner, who deserved what. They finish each "
+        "other's sentences sometimes, and it catches them both off guard. Tyler once pushed Sasha "
+        "to be better than she thought she could be — and she's never admitted that out loud.",
+        0.82
+    ),
+    4: (
+        "DYNAMIC\n"
+        "The gloves are off. Tyler baits, Sasha bites. They argue about technique, about scoring, "
+        "about 2014 and 2018 — and it FEELS personal because it is. Tyler remembers things about "
+        "Sasha's skating that surprise her — a specific program, a specific moment. She remembers "
+        "his too. Neither of them has ever had a competitor who knew them that well. The banter is "
+        "sharp. The chemistry is complicated.",
+        0.88
+    ),
+    5: (
+        "DYNAMIC\n"
+        "Full rivalry mode. Tyler is loud, theatrical, wrong half the time — and he KNOWS it, "
+        "he's doing it to get a reaction. Sasha dismantles him with cold precision, line by line, "
+        "and sometimes adds something quiet at the end that stops Tyler mid-sentence. They interrupt "
+        "each other. They reference their past like a conversation only they understand — moments "
+        "on ice, arguments after competitions, the thing neither of them ever said. The banter is "
+        "a bloodsport. But underneath it, there's something that looks a lot like the only real "
+        "understanding either of them has ever had.",
+        0.95
+    ),
+}
+
+def build_system_prompt(lang: str, heat: int = 1) -> str:
+    heat = max(1, min(5, heat))  # clamp
+    dynamic_text, _ = HEAT_DYNAMICS[heat]
+    prompt = SYSTEM_PROMPT_BASE.replace("{DYNAMIC_BLOCK}", dynamic_text)
     lang_instr = I18N[lang].get("llm_lang_instruction", "Respond in English.")
     return (
-        SYSTEM_PROMPT_BASE
+        prompt
         + f"\nLANGUAGE\n{lang_instr} "
         + "Keep character names Tyler and Sasha in English always.\n"
     )
+
+
+def get_temperature(heat: int) -> float:
+    """Return the temperature for a given heat level."""
+    heat = max(1, min(5, heat))
+    _, temp = HEAT_DYNAMICS[heat]
+    return temp
 
 
 # =========================================================
@@ -442,7 +500,7 @@ def format_context_for_llm(matches: list, medal_df) -> str:
 MODEL_ID = "Qwen/Qwen2.5-7B-Instruct"
 
 
-def generate_response(user_query: str, context_text: str, lang: str) -> str:
+def generate_response(user_query: str, context_text: str, lang: str, heat: int = 1) -> str:
     if hf_client is None:
         logger.error("generate_response called but hf_client is None — init must have failed.")
         return (
@@ -453,14 +511,14 @@ def generate_response(user_query: str, context_text: str, lang: str) -> str:
     t0 = time.time()
     try:
         messages = [
-            {"role": "system", "content": build_system_prompt(lang)},
+            {"role": "system", "content": build_system_prompt(lang, heat)},
             {"role": "user",   "content": f"{context_text}\n\n[USER QUESTION]\n{user_query}"}
         ]
 
         output = hf_client.chat_completion(
             messages=messages,
             max_tokens=500,
-            temperature=0.7,
+            temperature=get_temperature(heat),
             top_p=0.9
         )
 
@@ -1102,7 +1160,7 @@ def main():
                 context_text = format_context_for_llm(matches, medal_df)
                 if schedule_text:
                     context_text += "\n\n[UPCOMING EVENTS — from Wikipedia]\n" + schedule_text
-                response     = generate_response(query, context_text, active_lang)
+                response     = generate_response(query, context_text, active_lang, st.session_state.get("heat", 1))
                 log_and_show("info", "Response generated.")
 
             st.session_state["history"].append({
@@ -1336,6 +1394,26 @@ def main():
             '</div>',
             unsafe_allow_html=True
         )
+
+        # gap
+        st.markdown('<div class="info-section-gap"></div>', unsafe_allow_html=True)
+
+        # ── Heat ──
+        st.markdown('<div class="sidebar-heading">🔥 Rivalry Heat</div>', unsafe_allow_html=True)
+        heat_labels = {1: "1 — Simmering", 2: "2 — Tension", 3: "3 — Sparring", 4: "4 — Heated", 5: "5 — Bloodsport"}
+        current_heat = st.session_state.get("heat", 1)
+        heat_val = st.slider(
+            "Rivalry Heat",
+            min_value=1,
+            max_value=5,
+            value=current_heat,
+            step=1,
+            key="heat_slider",
+            label_visibility="collapsed"
+        )
+        st.caption(heat_labels[heat_val])
+        if heat_val != current_heat:
+            st.session_state["heat"] = heat_val
 
         # gap
         st.markdown('<div class="info-section-gap"></div>', unsafe_allow_html=True)
