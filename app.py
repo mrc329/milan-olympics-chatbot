@@ -76,7 +76,7 @@ I18N = {
         "log_title":         "System Log",
         "log_empty":         "Logs appear here after your first query.",
         "about_title":       "About",
-        "about_text":        "**Tyler** 🇺🇸 — 2018 Bronze · Figure Skating\n**Sasha** 🇷🇺 — 2014 & 2018 Silver · Figure Skating\n\nRivals 2014–2018. Now partners. It's complicated.\n\n**Stack:** Pinecone · Sentence Transformers · Haiku · Wikipedia",
+        "about_text":        "**Tyler** USA — 2018 Bronze · Figure Skating\n**Sasha** RUS — 2014 & 2018 Silver · Figure Skating\n\nRivals 2014–2018. Now partners. It's complicated.\n\n**Stack:** Pinecone · Sentence Transformers · Wikipedia",
         "games_not_started": "Medal table not yet available. Games start Feb 6.",
         "suggestion_schedule": "What's on today's schedule?",
         "suggestion_schedule_query": "What's on the schedule for {date}?",
@@ -105,7 +105,7 @@ I18N = {
         "log_title":         "Journal système",
         "log_empty":         "Les journaux apparaissent après votre première question.",
         "about_title":       "À propos",
-        "about_text":        "**Tyler** 🇺🇸 — Bronze 2018 · Patinage artistique\n**Sasha** 🇷🇺 — Argent 2014 & 2018 · Patinage artistique\n\nRivaux 2014–2018. Maintenant partenaires. C'est compliqué.\n\n**Pile :** Pinecone · Sentence Transformers · Haiku · Wikipedia",
+        "about_text":        "**Tyler** USA — Bronze 2018 · Patinage artistique\n**Sasha** RUS — Argent 2014 & 2018 · Patinage artistique\n\nRivaux 2014–2018. Maintenant partenaires. C'est compliqué.\n\n**Pile :** Pinecone · Sentence Transformers · Wikipedia",
         "games_not_started": "Le tableau des médailles n'est pas encore disponible. Les Jeux commencent le 6 février.",
         "suggestion_schedule": "Qu'est-il prévu aujourd'hui ?",
         "suggestion_schedule_query": "Qu'est-il prévu pour le {date} ?",
@@ -134,7 +134,7 @@ I18N = {
         "log_title":         "Log di sistema",
         "log_empty":         "I log compaiono dopo la prima domanda.",
         "about_title":       "Informazioni",
-        "about_text":        "**Tyler** 🇺🇸 — Bronzo 2018 · Pattinaggio artistico\n**Sasha** 🇷🇺 — Argento 2014 & 2018 · Pattinaggio artistico\n\nRivali 2014–2018. Ora partner. È complicato.\n\n**Stack:** Pinecone · Sentence Transformers · Haiku · Wikipedia",
+        "about_text":        "**Tyler** USA — Bronzo 2018 · Pattinaggio artistico\n**Sasha** RUS — Argento 2014 & 2018 · Pattinaggio artistico\n\nRivali 2014–2018. Ora partner. È complicato.\n\n**Stack:** Pinecone · Sentence Transformers · Wikipedia",
         "games_not_started": "La tabella delle medaglie non è ancora disponibile. I Giochi iniziano il 6 febbraio.",
         "suggestion_schedule": "Cosa è previsto oggi?",
         "suggestion_schedule_query": "Cosa è previsto per il {date}?",
@@ -436,8 +436,13 @@ CSS = """
  * ============================================================ */
 
 /* ── global ── */
+/* Three layered ridgelines at low opacity — atmospheric mountain texture */
 body, .stApp {
-    background: #F4F7F8;
+    background-color: #F4F7F8;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 1440 400' preserveAspectRatio='xMidYMax slice'%3E%3Cpath fill='%230A1929' fill-opacity='0.04' d='M0,320 L120,260 L200,290 L340,200 L420,240 L520,180 L600,220 L720,150 L800,190 L920,120 L1000,170 L1100,100 L1200,160 L1300,130 L1440,180 L1440,400 L0,400 Z'/%3E%3Cpath fill='%230A1929' fill-opacity='0.055' d='M0,350 L80,310 L180,340 L280,280 L380,320 L460,260 L560,300 L680,240 L760,275 L860,220 L960,260 L1060,210 L1160,250 L1260,200 L1360,240 L1440,220 L1440,400 L0,400 Z'/%3E%3Cpath fill='%230A1929' fill-opacity='0.07' d='M0,370 L100,345 L200,365 L320,330 L400,355 L500,315 L600,350 L720,310 L820,340 L940,290 L1040,330 L1160,280 L1260,320 L1360,285 L1440,310 L1440,400 L0,400 Z'/%3E%3C/svg%3E");
+    background-repeat: no-repeat;
+    background-position: bottom center;
+    background-size: 100% 420px;
     color: #0A1929;
     font-family: 'Georgia', serif;
 }
@@ -927,13 +932,13 @@ def render_bubbles(response_text: str):
         if speaker == "tyler":
             st.markdown(
                 f'<div class="bubble bubble-tyler">'
-                f'<div class="speaker">🇺🇸 Tyler</div>{body}</div>',
+                f'<div class="speaker">USA Tyler</div>{body}</div>',
                 unsafe_allow_html=True
             )
         else:
             st.markdown(
                 f'<div class="bubble bubble-sasha">'
-                f'<div class="speaker">🇷🇺 Sasha</div>{body}</div>',
+                f'<div class="speaker">RUS Sasha</div>{body}</div>',
                 unsafe_allow_html=True
             )
 
@@ -1069,7 +1074,7 @@ def main():
                     nonlocal log_html
                     if current_speaker and current_body:
                         cls = "log-speaker-tyler" if current_speaker == "tyler" else "log-speaker-sasha"
-                        flag = "🇺🇸" if current_speaker == "tyler" else "🇷🇺"
+                        flag = "USA" if current_speaker == "tyler" else "RUS"
                         name = "Tyler" if current_speaker == "tyler" else "Sasha"
                         log_html += (
                             f'<div class="log-line">'
@@ -1233,11 +1238,11 @@ def main():
         st.markdown(f'<div class="sidebar-heading">{t("about_title")}</div>', unsafe_allow_html=True)
         st.markdown(
             '<div class="about-block">'
-            '<span class="about-name">Tyler</span> <span class="about-flag">🇺🇸 — 2018 Bronze · Figure Skating</span><br>'
-            '<span class="about-name">Sasha</span> <span class="about-flag">🇷🇺 — 2014 & 2018 Silver · Figure Skating</span>'
+            '<span class="about-name">Tyler</span> <span class="about-flag">USA — 2018 Bronze · Figure Skating</span><br>'
+            '<span class="about-name">Sasha</span> <span class="about-flag">RUS — 2014 & 2018 Silver · Figure Skating</span>'
             '<div class="about-divider">─</div>'
             'Rivals 2014–2018. Now partners. It\'s complicated.'
-            '<div class="about-stack"><strong>Stack:</strong> Pinecone · Sentence Transformers · Haiku · Wikipedia</div>'
+            '<div class="about-stack"><strong>Stack:</strong> Pinecone · Sentence Transformers · Wikipedia</div>'
             '</div>',
             unsafe_allow_html=True
         )
