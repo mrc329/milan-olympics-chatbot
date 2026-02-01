@@ -198,9 +198,10 @@ def load_pinecone_index():
 def load_hf_client():
     client = InferenceClient(
         model="Qwen/Qwen2.5-3B-Instruct",
-        token=HF_TOKEN
+        token=HF_TOKEN,
+        provider="together"
     )
-    logger.info("HuggingFace InferenceClient ready (Qwen2.5-3B-Instruct).")
+    logger.info("HuggingFace InferenceClient ready (Qwen2.5-3B-Instruct via Together AI).")
     return client
 
 
