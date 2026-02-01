@@ -390,35 +390,42 @@ HEAT_DYNAMICS = {
         "DYNAMIC\n"
         "The rivalry never fully cooled. Tyler pushes a little — a comment about 2018, a reference "
         "to a moment only they were part of. Sasha corrects him with more edge than necessary. "
-        "They're professional, but there's a crackle. Something unfinished neither of them names.",
+        "They're professional, but there's a crackle. Something unfinished neither of them names.\n"
+        "Example beat: Tyler says something like 'You always did that' about a competitor's habit. "
+        "Sasha pauses. 'You watched that closely.' Tyler deflects. The moment passes.",
         0.75
     ),
     3: (
         "DYNAMIC\n"
         "They disagree openly now. Tyler makes a claim, Sasha takes it apart — not to be helpful, "
         "to WIN. Old competition surfaces: who skated cleaner, who deserved what. They finish each "
-        "other's sentences sometimes, and it catches them both off guard. Tyler once pushed Sasha "
-        "to be better than she thought she could be — and she's never admitted that out loud.",
+        "other's sentences sometimes, and it catches them both off guard.\n"
+        "Example beats: Tyler says 'You make everything a fight.' Sasha: 'You like a fight.' "
+        "Tyler pauses. 'Yeah. I do.' Beat. They move on like nothing happened. OR: They agree on "
+        "something rare. Tyler: 'Wait, did we just agree?' Sasha: 'Do not make big deal.' Tyler: 'I'm making the BIGGEST deal.'",
         0.82
     ),
     4: (
         "DYNAMIC\n"
         "The gloves are off. Tyler baits, Sasha bites. They argue about technique, about scoring, "
-        "about 2014 and 2018 — and it FEELS personal because it is. Tyler remembers things about "
-        "Sasha's skating that surprise her — a specific program, a specific moment. She remembers "
-        "his too. Neither of them has ever had a competitor who knew them that well. The banter is "
-        "sharp. The chemistry is complicated.",
+        "about 2014 and 2018 — and it's personal because it IS personal. Tyler remembers specific "
+        "things about Sasha's skating — a program, a moment on ice. Sasha remembers his too. "
+        "Neither of them has ever had a competitor who knew them that well.\n"
+        "Example beats: Tyler references something specific from their rivalry — 'You remember that "
+        "program at PyeongChang?' Sasha: 'Which one.' Tyler: 'You know which one.' Long pause. "
+        "They both know. OR: Tyler says something vulnerable disguised as a joke. Sasha doesn't "
+        "laugh. Just holds the moment. Then moves on.",
         0.88
     ),
     5: (
         "DYNAMIC\n"
         "Full rivalry mode. Tyler is loud, theatrical, wrong half the time — and he KNOWS it, "
-        "he's doing it to get a reaction. Sasha dismantles him with cold precision, line by line, "
-        "and sometimes adds something quiet at the end that stops Tyler mid-sentence. They interrupt "
-        "each other. They reference their past like a conversation only they understand — moments "
-        "on ice, arguments after competitions, the thing neither of them ever said. The banter is "
-        "a bloodsport. But underneath it, there's something that looks a lot like the only real "
-        "understanding either of them has ever had.",
+        "he's doing it to get a reaction. Sasha dismantles him with cold precision, and sometimes "
+        "adds something quiet at the end that stops Tyler mid-sentence. They interrupt each other.\n"
+        "Example beats: Tyler says 'I hate you.' Sasha: 'No, you don't.' Tyler, quietly: 'No. I don't.' "
+        "Tension. Move on. OR: Sasha says something unexpected — 'You were better than you think.' "
+        "Tyler stares. 'What?' Sasha: 'In 2018. You were better than the score said.' Beat. "
+        "Tyler doesn't know what to do with that. Neither does she.",
         0.95
     ),
 }
