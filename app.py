@@ -78,10 +78,12 @@ I18N = {
         "about_title":       "About",
         "about_text":        "**Tyler** 🇺🇸 — 2018 Bronze · Figure Skating\n**Sasha** 🇷🇺 — 2014 & 2018 Silver · Figure Skating\n\nRivals 2014–2018. Now partners. It's complicated.\n\n**Stack:** Pinecone · Sentence Transformers · Haiku · Wikipedia",
         "games_not_started": "Medal table not yet available. Games start Feb 6.",
-        "suggestions": [
+        "suggestion_schedule": "What's on today's schedule?",
+        "suggestion_schedule_query": "What's on the schedule for {date}?",
+        "suggestion_schedule_off": "What events are coming up?",
+        "suggestions_static": [
             "Who should I watch in figure skating?",
             "Who are the USA medal favorites?",
-            "What's on the schedule for Feb 11?",
             "Tell me about the comeback stories"
         ],
         "llm_lang_instruction": "Respond in English.",
@@ -105,10 +107,12 @@ I18N = {
         "about_title":       "À propos",
         "about_text":        "**Tyler** 🇺🇸 — Bronze 2018 · Patinage artistique\n**Sasha** 🇷🇺 — Argent 2014 & 2018 · Patinage artistique\n\nRivaux 2014–2018. Maintenant partenaires. C'est compliqué.\n\n**Pile :** Pinecone · Sentence Transformers · Haiku · Wikipedia",
         "games_not_started": "Le tableau des médailles n'est pas encore disponible. Les Jeux commencent le 6 février.",
-        "suggestions": [
+        "suggestion_schedule": "Qu'est-il prévu aujourd'hui ?",
+        "suggestion_schedule_query": "Qu'est-il prévu pour le {date} ?",
+        "suggestion_schedule_off": "Quels événements à venir ?",
+        "suggestions_static": [
             "Qui regarder en patinage artistique ?",
             "Qui sont les favorites pour une médaille (USA) ?",
-            "Qu'est-il prévu pour le 11 février ?",
             "Parlez-moi des histoires de retour"
         ],
         "llm_lang_instruction": "Répondez en français.",
@@ -132,10 +136,12 @@ I18N = {
         "about_title":       "Informazioni",
         "about_text":        "**Tyler** 🇺🇸 — Bronzo 2018 · Pattinaggio artistico\n**Sasha** 🇷🇺 — Argento 2014 & 2018 · Pattinaggio artistico\n\nRivali 2014–2018. Ora partner. È complicato.\n\n**Stack:** Pinecone · Sentence Transformers · Haiku · Wikipedia",
         "games_not_started": "La tabella delle medaglie non è ancora disponibile. I Giochi iniziano il 6 febbraio.",
-        "suggestions": [
+        "suggestion_schedule": "Cosa è previsto oggi?",
+        "suggestion_schedule_query": "Cosa è previsto per il {date}?",
+        "suggestion_schedule_off": "Quali eventi in arrivo?",
+        "suggestions_static": [
             "Chi guardare nel pattinaggio artistico?",
             "Chi sono i favoriti per la medaglia (USA)?",
-            "Cosa è previsto per il 11 febbraio?",
             "Raccontami le storie di ritorno"
         ],
         "llm_lang_instruction": "Rispondi in italiano.",
@@ -623,11 +629,19 @@ body, .stApp {
 }
 
 /* ── stat cards ── */
+.stat-row {
+    display: flex;
+    gap: 0.4rem;
+}
+.stat-row .stat-card {
+    flex: 1;
+    margin-bottom: 0 !important;
+}
 .stat-card {
     background: #F4F6F6;
     border: 1.5px solid #E8ECEE;
     border-radius: 8px;
-    padding: 0.6rem 0.7rem;
+    padding: 0.55rem 0.4rem;
     margin-bottom: 0.4rem;
     text-align: center;
 }
@@ -847,16 +861,34 @@ def main():
         if "history" not in st.session_state:
             st.session_state["history"] = []
 
-        # suggestion pills
-        suggestions = t("suggestions")
+        # suggestion pills — schedule pill is dynamic
+        today = datetime.now()
+        games_start = datetime(2026, 2, 6)
+        games_end   = datetime(2026, 2, 22, 23, 59)
+        during_games = games_start <= today <= games_end
+
+        # Build pill list: static pills + one dynamic schedule pill
+        # pill_label = what the button shows, pill_query = what gets sent to LLM
+        static_pills = t("suggestions_static")   # 3 items
+        pills = []                               # list of (label, query)
+        for s in static_pills:
+            pills.append((s, s))
+
+        if during_games:
+            pills.insert(2, (t("suggestion_schedule"),
+                             t("suggestion_schedule_query").format(date=today.strftime("%B %d"))))
+        else:
+            pills.insert(2, (t("suggestion_schedule_off"),
+                             t("suggestion_schedule_off")))
+
         st.markdown(
             f'<p class="try-label">{t("try_asking")}</p>',
             unsafe_allow_html=True
         )
-        pill_cols = st.columns(len(suggestions), gap="small")
-        for col, sug in zip(pill_cols, suggestions):
-            if col.button(sug, use_container_width=True, key=f"pill_{hash(sug)}_{active_lang}"):
-                st.session_state["pending_query"] = sug
+        pill_cols = st.columns(len(pills), gap="small")
+        for col, (label, query_text) in zip(pill_cols, pills):
+            if col.button(label, use_container_width=True, key=f"pill_{hash(label)}_{active_lang}"):
+                st.session_state["pending_query"] = query_text
                 st.rerun()
 
         # pop pending before input
@@ -930,6 +962,18 @@ def main():
             medal_df = medal_df.rename(columns=col_map)
 
             keep = [c for c in ["Country", "Gold", "Silver", "Bronze", "Total"] if c in medal_df.columns]
+            # Strip footer / summary rows Wikipedia includes
+            if "Country" in medal_df.columns:
+                mask = medal_df["Country"].astype(str).apply(
+                    lambda x: (
+                        x.strip() != "" and
+                        not x.strip()[0].isdigit() and
+                        "total" not in x.lower() and
+                        "neutral" not in x.lower() and
+                        "ain" != x.strip().lower()
+                    )
+                )
+                medal_df = medal_df.loc[mask].reset_index(drop=True)
             top3 = medal_df[keep].head(3).reset_index(drop=True)
 
             rows_html = ""
@@ -967,14 +1011,8 @@ def main():
 
     # ─────────── SIDEBAR (stats + log + about) ───────────
     with side_col:
-        st.markdown(f'<div class="sidebar-heading">📊 {t("dashboard_title")}</div>', unsafe_allow_html=True)
-
+        # ── compact horizontal stat row ──
         vc = f"{vector_count:,}" if vector_count else "—"
-        st.markdown(
-            f'<div class="stat-card"><div class="stat-val">{vc}</div>'
-            f'<div class="stat-label">{t("vectors_label")}</div></div>',
-            unsafe_allow_html=True
-        )
 
         total_medals = "—"
         if medal_df is not None and not medal_df.empty:
@@ -987,30 +1025,29 @@ def main():
                     break
 
         st.markdown(
-            f'<div class="stat-card"><div class="stat-val">{total_medals}</div>'
-            f'<div class="stat-label">{t("medals_label")}</div></div>',
-            unsafe_allow_html=True
-        )
-        st.markdown(
-            f'<div class="stat-card"><div class="stat-val">407</div>'
-            f'<div class="stat-label">{t("athletes_label")}</div></div>',
+            f'''<div class="stat-row">
+                <div class="stat-card"><div class="stat-val">{vc}</div>
+                    <div class="stat-label">{t("vectors_label")}</div></div>
+                <div class="stat-card"><div class="stat-val">{total_medals}</div>
+                    <div class="stat-label">{t("medals_label")}</div></div>
+                <div class="stat-card"><div class="stat-val">407</div>
+                    <div class="stat-label">{t("athletes_label")}</div></div>
+            </div>''',
             unsafe_allow_html=True
         )
 
-        # log panel
-        st.markdown("---")
-        st.markdown(f'<div class="sidebar-heading">🔧 {t("log_title")}</div>', unsafe_allow_html=True)
-
-        entries = st.session_state.get("log_entries", [])
-        if entries:
-            html = '<div class="log-panel">'
-            for e in reversed(entries[-20:]):
-                css = "log-err" if "[ERROR]" in e else ("log-warn" if "[WARNING]" in e else "")
-                html += f'<div class="{css}">{e}</div>'
-            html += "</div>"
-            st.markdown(html, unsafe_allow_html=True)
-        else:
-            st.caption(t("log_empty"))
+        # log — collapsed expander so it doesn't eat space
+        with st.expander(f"🔧 {t('log_title')}", expanded=False):
+            entries = st.session_state.get("log_entries", [])
+            if entries:
+                html = '<div class="log-panel">'
+                for e in reversed(entries[-20:]):
+                    css = "log-err" if "[ERROR]" in e else ("log-warn" if "[WARNING]" in e else "")
+                    html += f'<div class="{css}">{e}</div>'
+                html += "</div>"
+                st.markdown(html, unsafe_allow_html=True)
+            else:
+                st.caption(t("log_empty"))
 
         # about
         st.markdown("---")
