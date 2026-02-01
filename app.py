@@ -245,7 +245,12 @@ def fetch_live_medals():
         resp.raise_for_status()
         html = resp.json().get("parse", {}).get("text", {}).get("*", "")
 
-        for tbl in pd.read_html(html):
+        if not html or not html.strip():
+            logger.warning("Medal page returned empty HTML — not yet populated.")
+            return None, datetime.now().strftime("%I:%M %p"), "Games not started — table not live yet."
+
+        from io import StringIO
+        for tbl in pd.read_html(StringIO(html)):
             cols = [str(c).lower() for c in tbl.columns]
             if "gold" in cols and "silver" in cols and "bronze" in cols:
                 tbl.columns = [str(c).strip() for c in tbl.columns]
@@ -282,8 +287,13 @@ def fetch_live_schedule():
         resp.raise_for_status()
         html = resp.json().get("parse", {}).get("text", {}).get("*", "")
 
+        if not html or not html.strip():
+            logger.warning("Wikipedia returned empty HTML — page not yet populated.")
+            return None, "Schedule not yet available."
+
+        from io import StringIO
         upcoming = []
-        for tbl in pd.read_html(html):
+        for tbl in pd.read_html(StringIO(html)):
             tbl.columns = [str(c).strip() for c in tbl.columns]
 
             # Find a date-ish column and an event-ish column
@@ -517,9 +527,27 @@ def generate_response(user_query: str, context_text: str, lang: str, heat: int =
     logger.info(f"Calling {MODEL_ID} via HuggingFace…")
     t0 = time.time()
     try:
+        # Pull any schedule dates out of context and stamp them as a
+        # hard constraint block immediately before the question.  Qwen 7B
+        # ignores dates buried in body text or even in SCHEDULE headers;
+        # putting them last (right before the question) is where the model
+        # actually looks when deciding what to say.
+        import re as _re
+        schedule_dates = _re.findall(
+            r"SCHEDULE:\s*(.+?)\s+on\s+(.+?)\s+at\s+(.+?)\s*---",
+            context_text
+        )
+        if schedule_dates:
+            constraint = "\n[SCHEDULE DATES — USE ONLY THESE, DO NOT CHANGE OR INVENT]\n"
+            for ev, dt, vn in schedule_dates:
+                constraint += f"  • {ev}: {dt} at {vn}\n"
+            constraint += "Every date you say MUST be one of the dates above. If you are not sure, do not guess.\n"
+        else:
+            constraint = ""
+
         messages = [
             {"role": "system", "content": build_system_prompt(lang, heat)},
-            {"role": "user",   "content": f"{context_text}\n\n[USER QUESTION]\n{user_query}"}
+            {"role": "user",   "content": f"{context_text}\n\n{constraint}[USER QUESTION]\n{user_query}"}
         ]
 
         output = hf_client.chat_completion(
