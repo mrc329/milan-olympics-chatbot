@@ -281,17 +281,22 @@ DYNAMIC
 Fierce rivals 2014-2018. Now commentary partners. Unresolved tension leaks through — a pause, a look, an overly casual comment. They NEVER directly address their past, but it's always there. When they BOTH agree, it carries weight.
 
 FORMAT
-Each line must be exactly: SPEAKER: dialogue. No exceptions.
-Tyler always first. Like this, with no blank lines between:
+Output ONLY lines in this exact pattern. No headers, no preamble, no trailing commentary.
 
-TYLER: [his line here]
-SASHA: [her line here]
-TYLER: [optional]
-SASHA: [optional]
+TYLER: [his line]
+SASHA: [her line]
+TYLER: [his line]
+SASHA: [her line]
 
-Do NOT put the speaker name on its own line.
-Do NOT use emoji flags. Just "TYLER:" or "SASHA:" then the text.
-2-4 exchanges max. Conversational. Let personality do the work.
+STRICT RULES — every single one applies:
+- Every line starts with exactly "TYLER:" or "SASHA:" followed by a space, then dialogue.
+- They MUST alternate. Tyler, Sasha, Tyler, Sasha. Never two Tyler lines in a row. Never two Sasha lines in a row.
+- Tyler ALWAYS goes first. Sasha ALWAYS has the final line.
+- 2-4 exchanges (so 4-8 lines total). Conversational.
+- Do NOT put the speaker name on its own line. WRONG: "🇺🇸 Tyler" then dialogue on the next line.
+- Do NOT use emoji flags anywhere. No 🇺🇸 or 🇷🇺. Just the name then a colon.
+- No blank lines between exchanges.
+- No summary or sign-off line. End on a natural conversational beat, not a wrap-up.
 
 RULES
 - Use ONLY retrieved context. Do not invent athletes or results.
@@ -410,92 +415,80 @@ CSS = """
 <style>
 /* ============================================================
  * MILANO CORTINA 2026 — LIGHT EDITORIAL THEME
- * Matches the visual language of olympics.com/en/milano-cortina-2026/brand
  *
- * PALETTE (all verified WCAG AA on their respective backgrounds)
- *   #0A1929  Navy          — primary text (15.4:1 on white)
+ * PALETTE
+ *   #0A1929  Navy          — primary text
  *   #0033A0  Olympic Blue  — accents, links, borders
- *   #006B3F  Olympic Green — secondary accent (deepened for 3:1 on white)
+ *   #006B3F  Olympic Green — secondary accent
  *   #FFFFFF  White         — page base
  *   #F4F6F6  Snow          — card / section fills
- *   #E8ECEE  Frost         — dividers, subtle borders
- *   #6B7B8D  Slate         — meta text, captions (4.6:1 on white)
+ *   #E8ECEE  Frost         — dividers
+ *   #6B7B8D  Slate         — meta / captions
  *
- * ADA / WCAG AA CHECKLIST
- *   ✓ Normal text ≥ 4.5:1 contrast
- *   ✓ Large text / UI components ≥ 3:1
- *   ✓ Focus rings visible on all interactive elements
- *   ✓ Touch targets ≥ 44 × 44 px
- *   ✓ No information conveyed by color alone
- *     (speaker labels use icon + text, not just color)
+ * ITALIAN TRICOLORE (header accent stripe)
+ *   #009246  Verde
+ *   #FFFFFF  Bianco
+ *   #CE2B37  Rosso
  * ============================================================ */
 
-/* ── reset & base ── */
+/* ── base ── */
 body, .stApp {
     background: #FFFFFF;
     color: #0A1929;
-    font-family: 'Georgia', 'Times New Roman', serif;   /* editorial body */
+    font-family: 'Georgia', 'Times New Roman', serif;
 }
 .block-container {
-    padding-top: 1.2rem !important;
-    padding-bottom: 1rem !important;
-    max-width: 1180px;
+    padding-top: 0.8rem !important;
+    padding-bottom: 0.8rem !important;
+    max-width: 1280px !important;
 }
 
 /* ── header ── */
 .header-band {
     background: #FFFFFF;
-    border-bottom: 4px solid #0033A0;
-    padding: 1.6rem 1.4rem 1.2rem;
+    border-bottom: 3px solid #0033A0;
+    padding: 1.4rem 1.2rem 1rem;
     text-align: center;
     position: relative;
 }
-/* thin green accent line below the blue border */
+/* Italian tricolore stripe: green | white | red */
 .header-band::after {
     content: '';
     position: absolute;
-    bottom: -7px; left: 0; right: 0;
-    height: 3px;
-    background: #006B3F;
+    bottom: -9px; left: 0; right: 0;
+    height: 6px;
+    background: linear-gradient(90deg,
+        #009246 0%, #009246 33.33%,
+        #FFFFFF 33.33%, #FFFFFF 66.66%,
+        #CE2B37 66.66%, #CE2B37 100%
+    );
 }
 .header-band h1 {
     margin: 0;
-    font-size: 2rem;
+    font-size: 1.9rem;
     font-weight: 700;
     color: #0A1929;
     letter-spacing: 0.04em;
-    font-family: 'Georgia', 'Times New Roman', serif;
 }
-/* "Milano Cortina" part in blue via a span we add in Python */
 .header-band h1 .blue { color: #0033A0; }
-
 .header-band .tagline {
     color: #6B7B8D;
-    font-size: 0.88rem;
-    margin-top: 0.3rem;
+    font-size: 0.85rem;
+    margin-top: 0.25rem;
     font-style: italic;
 }
 
-/* ── language toggle (top-row pills) ── */
+/* ── ALL buttons base ── */
 .stButton button {
-    /* shared base for ALL st buttons */
     font-family: 'Segoe UI', system-ui, sans-serif !important;
-    font-size: 0.78rem !important;
+    font-size: 0.75rem !important;
     font-weight: 600 !important;
-    border-radius: 22px !important;
-    min-height: 44px !important;           /* ADA touch target */
-    padding: 0.5rem 0.9rem !important;
+    border-radius: 20px !important;
+    min-height: 40px !important;
+    padding: 0.4rem 0.75rem !important;
     cursor: pointer !important;
     transition: background 0.18s, color 0.18s, border-color 0.18s, box-shadow 0.18s !important;
-}
-/* focus ring — visible on keyboard nav */
-.stButton button:focus-visible {
-    outline: 3px solid #0033A0 !important;
-    outline-offset: 2px !important;
-}
-
-/* lang pills — ghost style */
-.stButton button {
+    /* default = ghost (lang pills) */
     background: #FFFFFF !important;
     border: 1.5px solid #E8ECEE !important;
     color: #0A1929 !important;
@@ -505,45 +498,47 @@ body, .stApp {
     color: #0033A0 !important;
     background: #F0F4FF !important;
 }
+.stButton button:focus-visible {
+    outline: 3px solid #0033A0 !important;
+    outline-offset: 2px !important;
+}
 
-/* ── suggestion pills (override with higher specificity via wrapper) ──
-   We target pills inside main_col by using the fact that they sit
-   inside a [data-testid="column"] element. Streamlit doesn't let us
-   add classes to columns, so we use a subtler approach: the pills
-   row comes right after our "Try asking" <p>, so we style all
-   .stButton buttons uniformly and differentiate lang vs pill by
-   the fact that lang buttons use use_container_width on 5-col grid
-   (they'll be narrower) vs pills on a 4-col grid. Both share the
-   same base; the key visual difference is the suggestion pills get
-   a filled blue background after the header. We achieve this by
-   injecting a wrapper class around the pills via markdown. ──        */
+/* ── suggestion pills — filled blue.
+   These live inside main_col which Streamlit renders AFTER the header.
+   We scope with .try-label (rendered as a <p> inside main_col).
+   Because Streamlit wraps each st.markdown in its own div, the <p>
+   is NOT a direct sibling of the columns div. So we use a broader
+   descendant selector: any .stButton inside the same block-container
+   that also contains .try-label. ── */
+.try-label { display: block; }   /* ensure it exists in the DOM tree */
 
-/* suggestion pills — filled blue variant.
-   .try-label is only rendered before the pill row, never before lang toggles.
-   Streamlit renders columns as a sibling div after our <p>, so
-   .try-label ~ div .stButton button hits exactly the pills. */
-.try-label ~ div .stButton button {
+/* Override: target buttons that are inside a container that also
+   holds .try-label. Streamlit puts main_col contents inside a single
+   [data-testid="column"] wrapper, so .try-label and the pill columns
+   ARE inside the same column div. */
+[data-testid="column"] .try-label ~ * .stButton button,
+[data-testid="stColumn"] .try-label ~ * .stButton button {
     background: #0033A0 !important;
     border-color: #0033A0 !important;
     color: #FFFFFF !important;
 }
-.try-label ~ div .stButton button:hover {
+[data-testid="column"] .try-label ~ * .stButton button:hover,
+[data-testid="stColumn"] .try-label ~ * .stButton button:hover {
     background: #002680 !important;
     border-color: #002680 !important;
-    color: #FFFFFF !important;
 }
-.try-label ~ div .stButton button:focus-visible {
-    outline: 3px solid #0A1929 !important;
-    outline-offset: 2px !important;
+[data-testid="column"] .try-label ~ * .stButton button:focus-visible,
+[data-testid="stColumn"] .try-label ~ * .stButton button:focus-visible {
+    outline-color: #0A1929 !important;
 }
 
 /* ── "Try asking" label ── */
 .try-label {
     color: #6B7B8D;
-    font-size: 0.78rem;
+    font-size: 0.72rem;
     font-weight: 600;
     font-family: 'Segoe UI', system-ui, sans-serif;
-    margin-bottom: 0.35rem;
+    margin-bottom: 0.3rem !important;
     text-transform: uppercase;
     letter-spacing: 0.06em;
 }
@@ -551,57 +546,52 @@ body, .stApp {
 /* ── chat bubbles ── */
 .bubble {
     border-radius: 10px;
-    padding: 0.85rem 1rem;
-    margin-bottom: 0.55rem;
-    line-height: 1.6;
+    padding: 0.8rem 0.9rem;
+    margin-bottom: 0.5rem;
+    line-height: 1.55;
     animation: fadeUp 0.22s ease;
-    color: #0A1929;                        /* dark text on light bg */
+    color: #0A1929;
 }
 @keyframes fadeUp {
     from { opacity: 0; transform: translateY(4px); }
     to   { opacity: 1; transform: translateY(0); }
 }
-
-/* Tyler = Olympic Blue accent */
 .bubble-tyler {
-    background: #F0F4FF;                   /* very light blue tint */
+    background: #F0F4FF;
     border-left: 4px solid #0033A0;
 }
-/* Sasha = Olympic Green accent */
 .bubble-sasha {
-    background: #F0FAF4;                   /* very light green tint */
+    background: #F0FAF4;
     border-left: 4px solid #006B3F;
 }
-
 .bubble .speaker {
     font-weight: 700;
-    font-size: 0.72rem;
+    font-size: 0.7rem;
     letter-spacing: 0.1em;
     text-transform: uppercase;
-    margin-bottom: 0.25rem;
+    margin-bottom: 0.2rem;
     font-family: 'Segoe UI', system-ui, sans-serif;
 }
-/* Speaker name colors — paired with icon prefix in Python for color-independence */
-.bubble-tyler .speaker { color: #0033A0; }   /* 4.6:1 on #F0F4FF ✓ */
-.bubble-sasha .speaker { color: #006B3F; }   /* 4.8:1 on #F0FAF4 ✓ */
+.bubble-tyler .speaker { color: #0033A0; }
+.bubble-sasha .speaker { color: #006B3F; }
 
 /* ── user bubble ── */
 .user-bubble {
     background: #F4F6F6;
     border-radius: 8px;
     border-right: 4px solid #006B3F;
-    padding: 0.5rem 0.85rem;
-    margin-bottom: 0.3rem;
+    padding: 0.45rem 0.8rem;
+    margin-bottom: 0.25rem;
     text-align: right;
     color: #0A1929;
-    font-size: 0.88rem;
+    font-size: 0.86rem;
     font-family: 'Segoe UI', system-ui, sans-serif;
 }
 .user-meta {
     color: #6B7B8D;
-    font-size: 0.7rem;
+    font-size: 0.68rem;
     text-align: right;
-    margin-bottom: 0.1rem;
+    margin-bottom: 0.08rem;
     font-family: 'Segoe UI', system-ui, sans-serif;
 }
 
@@ -611,23 +601,21 @@ body, .stApp {
     border: 1.5px solid #E8ECEE !important;
     color: #0A1929 !important;
     border-radius: 8px !important;
-    font-size: 0.92rem !important;
-    min-height: 44px !important;           /* ADA touch target */
-    padding: 0 0.75rem !important;
+    font-size: 0.9rem !important;
+    min-height: 44px !important;
+    padding: 0 0.7rem !important;
     font-family: 'Segoe UI', system-ui, sans-serif !important;
     transition: border-color 0.18s, box-shadow 0.18s !important;
 }
 .stTextInput input:focus {
     border-color: #0033A0 !important;
-    box-shadow: 0 0 0 3px rgba(0,51,160,0.2) !important;  /* visible focus ring */
+    box-shadow: 0 0 0 3px rgba(0,51,160,0.2) !important;
     outline: none !important;
 }
-.stTextInput input::placeholder {
-    color: #6B7B8D !important;
-}
+.stTextInput input::placeholder { color: #6B7B8D !important; }
 .stTextInput label {
     color: #6B7B8D !important;
-    font-size: 0.78rem !important;
+    font-size: 0.72rem !important;
     font-weight: 600 !important;
     font-family: 'Segoe UI', system-ui, sans-serif !important;
     text-transform: uppercase !important;
@@ -638,67 +626,112 @@ body, .stApp {
 .stat-card {
     background: #F4F6F6;
     border: 1.5px solid #E8ECEE;
-    border-radius: 10px;
-    padding: 0.7rem 0.8rem;
-    margin-bottom: 0.5rem;
+    border-radius: 8px;
+    padding: 0.6rem 0.7rem;
+    margin-bottom: 0.4rem;
     text-align: center;
 }
 .stat-card .stat-val {
-    font-size: 1.55rem;
+    font-size: 1.4rem;
     font-weight: 700;
-    color: #0033A0;                        /* 4.6:1 on #F4F6F6 ✓ */
+    color: #0033A0;
     font-family: 'Georgia', serif;
 }
 .stat-card .stat-label {
-    font-size: 0.67rem;
-    color: #6B7B8D;                        /* 4.6:1 on #F4F6F6 ✓ */
+    font-size: 0.64rem;
+    color: #6B7B8D;
     text-transform: uppercase;
     letter-spacing: 0.07em;
     font-family: 'Segoe UI', system-ui, sans-serif;
-    margin-top: 0.15rem;
+    margin-top: 0.1rem;
 }
 
-/* ── sidebar headings ── */
+/* ── section headings (sidebar panels) ── */
 .sidebar-heading {
     color: #0A1929;
-    font-size: 0.82rem;
+    font-size: 0.78rem;
     font-weight: 700;
     text-transform: uppercase;
     letter-spacing: 0.08em;
     font-family: 'Segoe UI', system-ui, sans-serif;
     border-bottom: 2px solid #0033A0;
-    padding-bottom: 0.3rem;
-    margin-bottom: 0.6rem;
+    padding-bottom: 0.25rem;
+    margin-bottom: 0.5rem;
 }
+
+/* ── medal table ── */
+.medal-table {
+    width: 100%;
+    border-collapse: collapse;
+    border-radius: 8px;
+    overflow: hidden;
+    border: 1px solid #E8ECEE;
+    font-family: 'Segoe UI', system-ui, sans-serif;
+}
+.medal-table thead tr { background: #0A1929; }
+.medal-th {
+    color: #FFFFFF;
+    font-size: 0.64rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    padding: 0.5rem 0.35rem;
+    text-align: center;
+    border-right: 1px solid rgba(255,255,255,0.12);
+}
+.medal-th:last-child { border-right: none; }
+.medal-th-country { text-align: left; padding-left: 0.5rem; }
+.medal-th-gold   { color: #F0C040; }
+.medal-th-silver { color: #C0C8D0; }
+.medal-th-bronze { color: #CD7F32; }
+.medal-th-total  { color: #FFFFFF; }
+
+.medal-table tbody tr {
+    background: #FFFFFF;
+    border-bottom: 1px solid #E8ECEE;
+}
+.medal-table tbody tr:last-child { border-bottom: none; }
+.medal-table tbody tr:nth-child(even) { background: #F4F6F6; }
+
+.medal-country {
+    font-size: 0.76rem;
+    font-weight: 600;
+    color: #0A1929;
+    padding: 0.45rem 0.5rem;
+    border-right: 1px solid #E8ECEE;
+}
+.medal-num {
+    font-size: 0.8rem;
+    font-weight: 700;
+    text-align: center;
+    color: #0A1929;
+    padding: 0.45rem 0.35rem;
+    border-right: 1px solid #E8ECEE;
+}
+.medal-num:last-child { border-right: none; }
+.medal-total { color: #0033A0; }
 
 /* ── log panel ── */
 .log-panel {
     background: #F4F6F6;
     border: 1px solid #E8ECEE;
     border-radius: 8px;
-    padding: 0.6rem 0.7rem;
-    max-height: 180px;
+    padding: 0.5rem 0.6rem;
+    max-height: 160px;
     overflow-y: auto;
     font-family: 'Consolas', 'Courier New', monospace;
-    font-size: 0.67rem;
-    color: #0A1929;                        /* 15.4:1 ✓ */
+    font-size: 0.64rem;
+    color: #0A1929;
     line-height: 1.5;
 }
-.log-panel .log-err  { color: #C0392B; }   /* 4.6:1 on #F4F6F6 ✓ */
-.log-panel .log-warn { color: #B7600A; }   /* 4.5:1 on #F4F6F6 ✓ */
+.log-panel .log-err  { color: #C0392B; }
+.log-panel .log-warn { color: #B7600A; }
 
 /* ── dividers ── */
-hr { border-color: #E8ECEE !important; margin: 0.9rem 0 !important; }
+hr { border-color: #E8ECEE !important; margin: 0.7rem 0 !important; }
 
-/* ── Streamlit dataframe (medal table) overrides ── */
-.stDataframe {
-    border: 1px solid #E8ECEE !important;
-    border-radius: 8px !important;
-    overflow: hidden !important;
-}
-
-/* ── scrollbar (subtle, on-brand) ── */
-::-webkit-scrollbar       { width: 6px; }
+/* ── scrollbar ── */
+::-webkit-scrollbar       { width: 5px; }
 ::-webkit-scrollbar-track { background: #F4F6F6; border-radius: 3px; }
 ::-webkit-scrollbar-thumb { background: #E8ECEE; border-radius: 3px; }
 ::-webkit-scrollbar-thumb:hover { background: #0033A0; }
@@ -711,61 +744,65 @@ hr { border-color: #E8ECEE !important; margin: 0.9rem 0 !important; }
 # =========================================================
 def render_bubbles(response_text: str):
     """
-    Handles two output formats from the model:
-      Format A (ideal):  "TYLER: some dialogue here"
-      Format B (actual): "🇺🇸 Tyler\nsome dialogue here"
-    We detect speaker lines, then accumulate following non-speaker
-    lines as their body until the next speaker or end.
-    """
-    lines = [l.strip() for l in response_text.split("\n")]
+    Parses model output into (speaker, body) pairs, enforces strict
+    Tyler/Sasha alternation (flips any consecutive duplicate), then
+    renders each as a styled chat bubble.
 
-    current_speaker = None   # "tyler" | "sasha" | None
+    Handles two output formats:
+      Format A (ideal):  "TYLER: some dialogue here"
+      Format B (actual): flag emoji + name on its own line, dialogue on next
+    """
+    # ── Step 1: parse into (speaker, body) tuples ──
+    lines = [l.strip() for l in response_text.split("\n")]
+    parsed = []                            # list of ("tyler"|"sasha", "body text")
+    current_speaker = None
     current_body    = []
 
-    def flush():
-        """Render whatever we've accumulated so far."""
-        if current_speaker is None or not current_body:
-            return
-        body_text = " ".join(current_body)
-        if current_speaker == "tyler":
-            st.markdown(
-                f'<div class="bubble bubble-tyler">'
-                f'<div class="speaker">🇺🇸 Tyler</div>{body_text}</div>',
-                unsafe_allow_html=True
-            )
-        else:
-            st.markdown(
-                f'<div class="bubble bubble-sasha">'
-                f'<div class="speaker">🇷🇺 Sasha</div>{body_text}</div>',
-                unsafe_allow_html=True
-            )
+    def commit():
+        if current_speaker and current_body:
+            parsed.append((current_speaker, " ".join(current_body)))
 
     for line in lines:
         if not line:
             continue
-
         upper = line.upper()
-
-        # Detect speaker line
-        is_tyler = "TYLER" in upper or line.startswith("🇺🇸")
-        is_sasha = "SASHA" in upper or line.startswith("🇷🇺")
+        is_tyler = upper.startswith("TYLER") or line.startswith("\U0001f1fa\U0001f1f8")
+        is_sasha = upper.startswith("SASHA") or line.startswith("\U0001f1f7\U0001f1fa")
 
         if is_tyler or is_sasha:
-            flush()                                          # render previous speaker's bubble
+            commit()
             current_speaker = "tyler" if is_tyler else "sasha"
-            current_body    = []
-            # Check if dialogue is on the same line after ":"
+            current_body = []
             if ":" in line:
                 remainder = line.split(":", 1)[-1].strip()
                 if remainder:
                     current_body.append(remainder)
         else:
-            # Non-speaker line: either body text for current speaker, or orphan
             if current_speaker:
                 current_body.append(line)
-            # else: orphan text before any speaker — silently drop
 
-    flush()  # render the last speaker's bubble
+    commit()
+
+    # ── Step 2: enforce alternation ──
+    # Flip any consecutive duplicate speaker to the other one
+    for i in range(1, len(parsed)):
+        if parsed[i][0] == parsed[i - 1][0]:
+            parsed[i] = ("sasha" if parsed[i][0] == "tyler" else "tyler", parsed[i][1])
+
+    # ── Step 3: render ──
+    for speaker, body in parsed:
+        if speaker == "tyler":
+            st.markdown(
+                f'<div class="bubble bubble-tyler">'
+                f'<div class="speaker">\U0001f1fa\U0001f1f8 Tyler</div>{body}</div>',
+                unsafe_allow_html=True
+            )
+        else:
+            st.markdown(
+                f'<div class="bubble bubble-sasha">'
+                f'<div class="speaker">\U0001f1f7\U0001f1fa Sasha</div>{body}</div>',
+                unsafe_allow_html=True
+            )
 
 
 # =========================================================
@@ -777,9 +814,11 @@ def main():
     # ── language toggle ──
     if "lang" not in st.session_state:
         st.session_state["lang"] = "EN"
+    if "input_gen" not in st.session_state:
+        st.session_state["input_gen"] = 0       # bumped after each pill-driven query to reset input
 
     active_lang = st.session_state["lang"]
-    lang_cols   = st.columns(5)   # EN | FR | IT | spacer | spacer
+    lang_cols   = st.columns(5)
 
     for i, (code, label) in enumerate([("EN","🇬🇧 EN"), ("FR","🇫🇷 FR"), ("IT","🇮🇹 IT")]):
         if lang_cols[i].button(label, key=f"lang_{code}", use_container_width=True):
@@ -787,7 +826,6 @@ def main():
             st.rerun()
 
     # ── header ──
-    # Wrap "MILAN 2026" (present in all 3 languages) in blue span
     title_html = t("header_title").replace("MILAN 2026", '<span class="blue">MILAN 2026</span>')
     st.markdown(
         f'<div class="header-band">'
@@ -801,11 +839,11 @@ def main():
     medal_df, medal_time, medal_err = fetch_live_medals()
     vector_count = get_pinecone_vector_count()
 
-    # ── layout ──
-    main_col, side_col = st.columns([2.3, 1], gap="medium")
+    # ── 3-column layout: chat | medals | sidebar ──
+    chat_col, medal_col, side_col = st.columns([2.2, 1.1, 1], gap="small")
 
-    # ─────────── MAIN ───────────
-    with main_col:
+    # ─────────── CHAT ───────────
+    with chat_col:
         if "history" not in st.session_state:
             st.session_state["history"] = []
 
@@ -821,19 +859,20 @@ def main():
                 st.session_state["pending_query"] = sug
                 st.rerun()
 
-        # pop pending before input so pill clicks fire immediately
+        # pop pending before input
         pending = st.session_state.pop("pending_query", "")
 
-        # input
+        # input — key includes input_gen so bumping it creates a fresh widget
+        input_key = f"main_input_{st.session_state['input_gen']}"
         typed = st.text_input(
             t("input_label"),
             placeholder=t("input_placeholder"),
-            key="main_input",
+            key=input_key,
             value=pending,
             max_chars=300
         )
 
-        # pending wins (pill click); otherwise use whatever the user typed
+        # pending wins (pill click); otherwise typed
         query = pending if pending else typed
 
         # process
@@ -854,9 +893,9 @@ def main():
                 "lang":     active_lang
             })
 
-            # clear input so it doesn't re-fire on next rerun
+            # bump gen to kill the current input widget and spawn a blank one
             if pending:
-                st.session_state["main_input"] = ""
+                st.session_state["input_gen"] += 1
                 st.rerun()
 
         # chat history (newest first)
@@ -872,7 +911,61 @@ def main():
             render_bubbles(turn["response"])
             st.markdown("<hr/>", unsafe_allow_html=True)
 
-    # ─────────── SIDEBAR ───────────
+    # ─────────── MEDAL TABLE ───────────
+    with medal_col:
+        st.markdown(f'<div class="sidebar-heading">🏅 {t("standings_title")}</div>', unsafe_allow_html=True)
+        st.caption(t("fetched_at").format(time=medal_time))
+
+        if medal_df is not None and not medal_df.empty:
+            # normalize columns
+            col_map = {}
+            for c in medal_df.columns:
+                cl = str(c).lower().strip()
+                if cl in ("nation", "country", "noc", "nations"):
+                    col_map[c] = "Country"
+                elif cl == "gold":   col_map[c] = "Gold"
+                elif cl == "silver": col_map[c] = "Silver"
+                elif cl == "bronze": col_map[c] = "Bronze"
+                elif cl == "total":  col_map[c] = "Total"
+            medal_df = medal_df.rename(columns=col_map)
+
+            keep = [c for c in ["Country", "Gold", "Silver", "Bronze", "Total"] if c in medal_df.columns]
+            top3 = medal_df[keep].head(3).reset_index(drop=True)
+
+            rows_html = ""
+            for i, row in top3.iterrows():
+                country = str(row.get("Country", "—"))
+                gold   = str(int(row["Gold"])) if "Gold" in row else "—"
+                silver = str(int(row["Silver"])) if "Silver" in row else "—"
+                bronze = str(int(row["Bronze"])) if "Bronze" in row else "—"
+                total  = str(int(row["Total"])) if "Total" in row else "—"
+                rows_html += (
+                    f'<tr>'
+                    f'<td class="medal-country">{country}</td>'
+                    f'<td class="medal-num">{gold}</td>'
+                    f'<td class="medal-num">{silver}</td>'
+                    f'<td class="medal-num">{bronze}</td>'
+                    f'<td class="medal-num medal-total">{total}</td>'
+                    f'</tr>'
+                )
+
+            table_html = (
+                '<table class="medal-table">'
+                '<thead><tr>'
+                '<th class="medal-th medal-th-country">Country</th>'
+                '<th class="medal-th medal-th-gold">Gold</th>'
+                '<th class="medal-th medal-th-silver">Silver</th>'
+                '<th class="medal-th medal-th-bronze">Bronze</th>'
+                '<th class="medal-th medal-th-total">Total</th>'
+                '</tr></thead>'
+                f'<tbody>{rows_html}</tbody>'
+                '</table>'
+            )
+            st.markdown(table_html, unsafe_allow_html=True)
+        else:
+            st.info(medal_err or t("games_not_started"))
+
+    # ─────────── SIDEBAR (stats + log + about) ───────────
     with side_col:
         st.markdown(f'<div class="sidebar-heading">📊 {t("dashboard_title")}</div>', unsafe_allow_html=True)
 
@@ -903,18 +996,6 @@ def main():
             f'<div class="stat-label">{t("athletes_label")}</div></div>',
             unsafe_allow_html=True
         )
-
-        # medal table
-        st.markdown("---")
-        st.markdown(f'<div class="sidebar-heading">🏅 {t("standings_title")}</div>', unsafe_allow_html=True)
-        st.caption(t("fetched_at").format(time=medal_time))
-
-        if medal_df is not None and not medal_df.empty:
-            display = medal_df.head(12).reset_index(drop=True)
-            display.index = display.index + 1
-            st.dataframe(display, use_container_width=True, hide_index=False)
-        else:
-            st.info(medal_err or t("games_not_started"))
 
         # log panel
         st.markdown("---")
