@@ -430,7 +430,7 @@ CSS = """
  *   #F4F7F8  Ice            — page background
  *   #FFFFFF  White          — cards, surfaces
  *   #E8ECEE  Frost          — dividers
- *   #6B7B8D  Slate          — captions, meta
+ *   #647384  Slate          — captions, meta
  *
  * Tricolore: #009246 | #FFFFFF | #CE2B37
  * ============================================================ */
@@ -552,7 +552,7 @@ body, .stApp {
 
 /* ── "Try asking" label ── */
 .try-label {
-    color: #6B7B8D;
+    color: #647384;
     font-size: 0.7rem;
     font-weight: 600;
     font-family: 'Segoe UI', system-ui, sans-serif;
@@ -608,7 +608,7 @@ body, .stApp {
     box-shadow: 0 1px 4px rgba(0,0,0,0.07);
 }
 .user-meta {
-    color: #6B7B8D;
+    color: #647384;
     font-size: 0.67rem;
     text-align: right;
     margin-bottom: 0.14rem;
@@ -664,9 +664,9 @@ body, .stApp {
     box-shadow: 0 0 0 3px rgba(0,129,138,0.18) !important;
     outline: none !important;
 }
-.stTextInput input::placeholder { color: #6B7B8D !important; }
+.stTextInput input::placeholder { color: #647384 !important; }
 .stTextInput label {
-    color: #6B7B8D !important;
+    color: #647384 !important;
     font-size: 0.7rem !important;
     font-weight: 600 !important;
     font-family: 'Segoe UI', system-ui, sans-serif !important;
@@ -817,7 +817,7 @@ body, .stApp {
 }
 .stat-card .stat-label {
     font-size: 0.6rem;
-    color: #6B7B8D;
+    color: #647384;
     text-transform: uppercase;
     letter-spacing: 0.08em;
     font-family: 'Segoe UI', system-ui, sans-serif;
@@ -832,9 +832,9 @@ body, .stApp {
     line-height: 1.55;
 }
 .about-block .about-name { font-weight: 700; }
-.about-block .about-flag { font-size: 0.7rem; color: #6B7B8D; }
+.about-block .about-flag { font-size: 0.7rem; color: #647384; }
 .about-block .about-divider { color: #E8ECEE; margin: 0.5rem 0; }
-.about-block .about-stack { color: #6B7B8D; font-size: 0.76rem; margin-top: 0.4rem; }
+.about-block .about-stack { color: #647384; font-size: 0.76rem; margin-top: 0.4rem; }
 .about-block .about-stack strong { color: #0A1929; }
 
 /* ── conversation log ── */
