@@ -337,7 +337,7 @@ class TestAthletes(unittest.TestCase):
     def test_athlete_metadata_no_injury_risk(self):
         p.upsert_athlete({"name": "Yuzuru Hanyu", "events": [], "favorite": True})
         meta = p.VECTOR_STORE["athlete::yuzuru_hanyu"]["metadata"]
-        self.assertIsNone(meta["injury_risk"])
+        self.assertNotIn("injury_risk", meta)
 
 
 # ─────────────────────────────────────────────
