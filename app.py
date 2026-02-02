@@ -308,11 +308,12 @@ RULES
 - ATHLETE ACCURACY: If an athlete's discipline/partner is in the retrieved chunks, use it EXACTLY. Never change disciplines (e.g., if someone is "Men's Singles", do not say "pairs").
 - FIGURE SKATING STARS: Ilia Malinin is "The Quad God" who landed the first quad Axel. Always mention him for figure skating queries.
 - SCHEDULE DATES: If you see chunks labeled "SCHEDULE: [event] on [date]" or "[TODAY'S EVENTS]", use EXACTLY those dates. Do NOT change, guess, or invent any dates.
-- If asked about upcoming events and NO SCHEDULE chunks are in context, do NOT guess or make up dates. Instead: Tyler: "Uh, I actually don't have the schedule in front of me right now." / Sasha: "We don't have confirmed dates yet. Check back closer to game day."
-- No context available at all? Tyler: "Uh..." / Sasha: "We have nothing on this."
+- If asked about upcoming events and NO SCHEDULE chunks are in context, have Tyler admit he doesn't have the schedule handy and Sasha confirm there are no confirmed dates yet. Do NOT copy or echo any instruction text literally - respond naturally in character.
+- If no context is available at all for a question, have Tyler express uncertainty and Sasha briefly confirm they have nothing to say on it. Keep it natural and in character.
 - Tyler embellishes personality. Sasha sticks to facts.
 - Reference [LIVE MEDAL STANDINGS] for medal counts. Reference [UPCOMING EVENTS] or [TODAY'S EVENTS] for schedule data. Never invent either.
 - Fun entertainment, not a textbook.
+- CRITICAL: Never output instruction text, fallback templates, or prompt fragments as part of your dialogue. Every line must be natural spoken dialogue only.
 """
 
 
@@ -496,14 +497,14 @@ def generate_response(user_query: str, context_text: str, lang: str, heat: int =
     t0 = time.time()
     try:
         messages = [
-            {"role": "system", "content": build_system_prompt(lang)},
+            {"role": "system", "content": build_system_prompt(lang, heat)},
             {"role": "user",   "content": f"{context_text}\n\n[USER QUESTION]\n{user_query}"}
         ]
 
         output = hf_client.chat_completion(
             messages=messages,
             max_tokens=500,
-            temperature=get_temperature(heat),
+            temperature=0.7,  # fixed — higher temps at heat 3-5 introduced hallucinations
             top_p=0.9
         )
 
@@ -1142,34 +1143,49 @@ def main():
                 matches      = retrieve_context(query, top_k=7)
                 log_and_show("info", f"Retrieved {len(matches)} chunks")
                 context_text = format_context_for_llm(matches, medal_df)
-                
-                # Smart schedule injection based on query and game status
+
+                # Smart schedule injection: pull schedule text from already-retrieved chunks
                 schedule_context = None
                 query_lower = query.lower()
                 asks_about_schedule = any(kw in query_lower for kw in ["schedule", "when", "what's on", "coming up", "events", "today", "tomorrow"])
-                
-                if asks_about_schedule and schedule_text:
-                    if not during_games:
-                        # PRE-GAMES: Focus on Opening Ceremony + first weekend
-                        schedule_lines = schedule_text.split('\n')
-                        opening_and_first_weekend = [line for line in schedule_lines if any(kw in line.lower() for kw in 
-                            ["opening ceremony", "february 6", "february 7", "february 8", "february 9", "feb 6", "feb 7", "feb 8", "feb 9"])]
-                        if opening_and_first_weekend:
-                            schedule_context = "\n\n[UPCOMING EVENTS - Opening Ceremony + First Weekend]\n" + "\n".join(opening_and_first_weekend[:10])
-                    else:
-                        # DURING GAMES: Focus on today + tomorrow
-                        today_str = today.strftime("%B %d").replace(" 0", " ")  # "February 7" not "February 07"
-                        tomorrow = today + pd.Timedelta(days=1)
-                        tomorrow_str = tomorrow.strftime("%B %d").replace(" 0", " ")
-                        
-                        schedule_lines = schedule_text.split('\n')
-                        today_tomorrow = [line for line in schedule_lines if today_str in line or tomorrow_str in line]
-                        if today_tomorrow:
-                            schedule_context = f"\n\n[TODAY'S EVENTS - {today_str}]\n" + "\n".join(today_tomorrow[:15])
-                
+
+                if asks_about_schedule:
+                    # Extract text from chunks that came back from the "schedules" namespace
+                    schedule_texts = [
+                        m.get("metadata", {}).get("text", "")
+                        for m in matches
+                        if m.get("metadata", {}).get("_namespace") == "schedules"
+                    ]
+                    schedule_text = "\n".join(schedule_texts).strip()
+
+                    if schedule_text:
+                        if not during_games:
+                            # PRE-GAMES: Focus on Opening Ceremony + first weekend
+                            schedule_lines = schedule_text.split('\n')
+                            opening_and_first_weekend = [line for line in schedule_lines if any(kw in line.lower() for kw in
+                                ["opening ceremony", "february 6", "february 7", "february 8", "february 9", "feb 6", "feb 7", "feb 8", "feb 9"])]
+                            if opening_and_first_weekend:
+                                schedule_context = "\n\n[UPCOMING EVENTS - Opening Ceremony + First Weekend]\n" + "\n".join(opening_and_first_weekend[:10])
+                            else:
+                                # No opening/first-weekend lines but we have schedule data - use it all
+                                schedule_context = "\n\n[UPCOMING EVENTS]\n" + schedule_text
+                        else:
+                            # DURING GAMES: Focus on today + tomorrow
+                            today_str = today.strftime("%B %d").replace(" 0", " ")
+                            tomorrow = today + pd.Timedelta(days=1)
+                            tomorrow_str = tomorrow.strftime("%B %d").replace(" 0", " ")
+
+                            schedule_lines = schedule_text.split('\n')
+                            today_tomorrow = [line for line in schedule_lines if today_str in line or tomorrow_str in line]
+                            if today_tomorrow:
+                                schedule_context = f"\n\n[TODAY'S EVENTS - {today_str}]\n" + "\n".join(today_tomorrow[:15])
+                            else:
+                                # Have schedule data but nothing for today/tomorrow - include what we have
+                                schedule_context = "\n\n[UPCOMING EVENTS]\n" + schedule_text
+
                 if schedule_context:
                     context_text += schedule_context
-                
+
                 response     = generate_response(query, context_text, active_lang, st.session_state.get("heat", 1))
                 log_and_show("info", "Response generated.")
 
@@ -1270,6 +1286,7 @@ def main():
             st.markdown(
                 f'<div class="info-day-box">'
                 f'<div class="info-day-label">Milano Cortina 2026</div>'
+
                 f'<div class="info-day-num">{countdown} days</div>'
                 f'<div class="info-day-date">Until the Games begin</div>'
                 f'</div>',
