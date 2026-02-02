@@ -146,33 +146,12 @@ jobs:
             })
 
 # ============================================================================
-# SETUP INSTRUCTIONS
+# IMPORTANT: This workflow uses your EXISTING Pinecone index
 # ============================================================================
 # 
-# 1. Add this file to your repo:
-#    milan-olympics-chatbot/.github/workflows/daily_validation.yml
-#
-# 2. Add secret to GitHub:
-#    - Go to: Settings > Secrets and variables > Actions
-#    - Click "New repository secret"
-#    - Name: PINECONE_API_KEY
-#    - Value: [your Pinecone API key]
-#    - Click "Add secret"
-#
-# 3. Enable workflow:
-#    - Go to: Actions tab
-#    - Find "Daily Nationality Validation" workflow
-#    - Click "Enable workflow" (if disabled)
-#
-# 4. Test manual run:
-#    - Go to: Actions > Daily Nationality Validation
-#    - Click "Run workflow" > "Run workflow"
-#    - Check the run for any errors
-#    - Download the validation log artifact
-#
-# 5. Schedule will run automatically:
-#    - Daily at 6 AM UTC starting Feb 6, 2026
-#    - You can pause/disable in Actions tab if needed
+# Index name: milan-2026-athletes-rag-optimized
+# No need to run 01_data_ingestion.py - your index is already populated
+# This script just validates nationalities and updates metadata if needed
 #
 # ============================================================================
 # PACKAGE NAMES (IMPORTANT)
