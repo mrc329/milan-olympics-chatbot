@@ -1,14 +1,11 @@
 name: Milan 2026 — Live Vector Update
-
 on:
   schedule:
     - cron: "*/30 * * * *"   # Every 30 minutes
   workflow_dispatch:           # Manual trigger
-
 jobs:
   update:
     runs-on: ubuntu-latest
-
     steps:
       # ── Checkout code ──
       - name: Checkout
@@ -25,12 +22,18 @@ jobs:
         run: |
           python -m unittest test_milan2026_pipeline -v
 
-      # ── Restore embedding model cache ──
+      # ── Restore model cache ──
+      # Caches ~/.cache/huggingface/hub (where sentence-transformers actually
+      # downloads models now).  restore-keys gives a partial-match fallback
+      # so a key like "st-model-" will still hit even if the full key changes.
       - name: Restore model cache
-        uses: actions/cache@v4
+        id: cache-restore
+        uses: actions/cache/restore@v4
         with:
-          path: ~/.cache/torch/sentence_transformers
-          key: sentence-transformers-all-MiniLM-L6-v2
+          path: ~/.cache/huggingface/hub
+          key: st-model-all-MiniLM-L6-v2-${{ runner.os }}
+          restore-keys: |
+            st-model-all-MiniLM-L6-v2-
 
       # ── Install runtime dependencies ──
       - name: Install dependencies
@@ -46,3 +49,12 @@ jobs:
           PIPELINE_LOG_LEVEL: INFO
         run: |
           python milan2026_pipeline.py
+
+      # ── Save model cache (only runs on a cache miss) ──
+      # This is the missing piece — without it a cache miss never rebuilds.
+      - name: Save model cache
+        if: steps.cache-restore.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: ~/.cache/huggingface/hub
+          key: st-model-all-MiniLM-L6-v2-${{ runner.os }}
