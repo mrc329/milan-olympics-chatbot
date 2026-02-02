@@ -35,7 +35,7 @@ jobs:
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install pinecone-client wikipediaapi
+          pip install pinecone wikipediaapi
       
       - name: Run nationality validation
         env:
