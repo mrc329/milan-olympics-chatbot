@@ -298,8 +298,8 @@ STRICT RULES — every single one applies:
 - They MUST alternate. Tyler, Sasha, Tyler, Sasha. Never two Tyler lines in a row. Never two Sasha lines in a row.
 - Tyler ALWAYS goes first. Sasha ALWAYS has the final line.
 - 2-4 exchanges (so 4-8 lines total). Conversational.
-- Do NOT put the speaker name on its own line. WRONG: "🇺🇸 Tyler" then dialogue on the next line.
-- Do NOT use emoji flags anywhere. No 🇺🇸 or 🇷🇺. Just the name then a colon.
+- Do NOT put the speaker name on its own line. WRONG: "USA Tyler" then dialogue on the next line.
+- Do NOT use emoji flags anywhere. Just the name then a colon.
 - No blank lines between exchanges.
 - No summary or sign-off line. End on a natural conversational beat, not a wrap-up.
 
