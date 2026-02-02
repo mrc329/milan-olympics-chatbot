@@ -234,13 +234,28 @@ def run_daily_validation():
         })
         
         if result['is_changed']:
-            changes_detected.append({
+            change_data = {
                 'athlete_id': athlete['id'],
                 'athlete_name': athlete_name,
                 'old_country': current_country,
                 'new_country': result['current_country'],
+                'confidence': result['confidence'],
                 'metadata': athlete['metadata']
-            })
+            }
+            
+            # Only auto-update if confidence is medium or high
+            if result['confidence'] in ['high', 'medium']:
+                changes_detected.append(change_data)
+                print(f"  → Will auto-update (confidence: {result['confidence']})")
+            else:
+                # Low confidence - flag for manual review
+                print(f"  → SKIPPING auto-update (confidence: {result['confidence']})")
+                print(f"  → Requires manual review via GitHub issue")
+                validation_results.append({
+                    **validation_results[-1],
+                    'needs_manual_review': True,
+                    'reason': 'Low confidence nationality change'
+                })
         
         # Rate limit: sleep between requests
         time.sleep(0.5)
