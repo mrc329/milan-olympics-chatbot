@@ -1,5 +1,5 @@
 """
-MILAN 2026 WINTER OLYMPICS — TYLER & SASHA
+MILAN 2026 WINTER OLYMPICS - TYLER & SASHA
 ============================================
 Production Streamlit app. Deploy via Streamlit Community Cloud from GitHub.
 
@@ -56,13 +56,13 @@ def log_and_show(level: str, msg: str):
 
 
 # =========================================================
-# 2. i18n — ALL USER-FACING STRINGS
+# 2. i18n - ALL USER-FACING STRINGS
 # =========================================================
 I18N = {
     "EN": {
-        "page_title":        "Milan 2026 — Tyler & Sasha",
+        "page_title":        "Milan 2026 - Tyler & Sasha",
         "header_title":      "MILAN 2026 WINTER OLYMPICS",
-        "header_tagline":    "Tyler & Sasha — live commentary",
+        "header_tagline":    "Tyler & Sasha - live commentary",
         "try_asking":        "Try asking…",
         "input_label":       "Ask Tyler & Sasha anything about Milan 2026:",
         "input_placeholder": "e.g. Who will win gold in alpine skiing?",
@@ -76,7 +76,7 @@ I18N = {
         "log_title":         "System Log",
         "log_empty":         "Logs appear here after your first query.",
         "about_title":       "About",
-        "about_text":        "**Tyler** USA — 2018 Bronze · Figure Skating\n**Sasha** RUS — 2014 & 2018 Silver · Figure Skating\n\nRivals 2014–2018. Now partners. It's complicated.\n\n**Stack:** Pinecone · Sentence Transformers · Wikipedia",
+        "about_text":        "**Tyler** USA - 2018 Bronze · Figure Skating\n**Sasha** RUS - 2014 & 2018 Silver · Figure Skating\n\nRivals 2014–2018. Now partners. It's complicated.\n\n**Stack:** Pinecone · Sentence Transformers · Wikipedia",
         "games_not_started": "Medal table not yet available. Games start Feb 6.",
         "suggestion_schedule": "What's on today's schedule?",
         "suggestion_schedule_query": "What's on the schedule for {date}?",
@@ -89,9 +89,9 @@ I18N = {
         "llm_lang_instruction": "Respond in English.",
     },
     "FR": {
-        "page_title":        "Milan 2026 — Tyler & Sasha",
+        "page_title":        "Milan 2026 - Tyler & Sasha",
         "header_title":      "JEUX OLYMPIQUES D'HIVER MILAN 2026",
-        "header_tagline":    "Tyler & Sasha — commentaire en direct",
+        "header_tagline":    "Tyler & Sasha - commentaire en direct",
         "try_asking":        "Essayez de demander…",
         "input_label":       "Posez une question à Tyler & Sasha sur Milan 2026 :",
         "input_placeholder": "ex. Qui va gagner l'or en ski alpine ?",
@@ -105,7 +105,7 @@ I18N = {
         "log_title":         "Journal système",
         "log_empty":         "Les journaux apparaissent après votre première question.",
         "about_title":       "À propos",
-        "about_text":        "**Tyler** USA — Bronze 2018 · Patinage artistique\n**Sasha** RUS — Argent 2014 & 2018 · Patinage artistique\n\nRivaux 2014–2018. Maintenant partenaires. C'est compliqué.\n\n**Pile :** Pinecone · Sentence Transformers · Wikipedia",
+        "about_text":        "**Tyler** USA - Bronze 2018 · Patinage artistique\n**Sasha** RUS - Argent 2014 & 2018 · Patinage artistique\n\nRivaux 2014–2018. Maintenant partenaires. C'est compliqué.\n\n**Pile :** Pinecone · Sentence Transformers · Wikipedia",
         "games_not_started": "Le tableau des médailles n'est pas encore disponible. Les Jeux commencent le 6 février.",
         "suggestion_schedule": "Qu'est-il prévu aujourd'hui ?",
         "suggestion_schedule_query": "Qu'est-il prévu pour le {date} ?",
@@ -118,9 +118,9 @@ I18N = {
         "llm_lang_instruction": "Répondez en français.",
     },
     "IT": {
-        "page_title":        "Milano 2026 — Tyler & Sasha",
+        "page_title":        "Milano 2026 - Tyler & Sasha",
         "header_title":      "OLIMPIADI INVERNALI MILANO 2026",
-        "header_tagline":    "Tyler & Sasha — commento dal vivo",
+        "header_tagline":    "Tyler & Sasha - commento dal vivo",
         "try_asking":        "Prova a chiedere…",
         "input_label":       "Chiedi qualcosa a Tyler & Sasha su Milano 2026:",
         "input_placeholder": "es. Chi vincerà l'oro nello sci alpino?",
@@ -134,7 +134,7 @@ I18N = {
         "log_title":         "Log di sistema",
         "log_empty":         "I log compaiono dopo la prima domanda.",
         "about_title":       "Informazioni",
-        "about_text":        "**Tyler** USA — Bronzo 2018 · Pattinaggio artistico\n**Sasha** RUS — Argento 2014 & 2018 · Pattinaggio artistico\n\nRivali 2014–2018. Ora partner. È complicato.\n\n**Stack:** Pinecone · Sentence Transformers · Wikipedia",
+        "about_text":        "**Tyler** USA - Bronzo 2018 · Pattinaggio artistico\n**Sasha** RUS - Argento 2014 & 2018 · Pattinaggio artistico\n\nRivali 2014–2018. Ora partner. È complicato.\n\n**Stack:** Pinecone · Sentence Transformers · Wikipedia",
         "games_not_started": "La tabella delle medaglie non è ancora disponibile. I Giochi iniziano il 6 febbraio.",
         "suggestion_schedule": "Cosa è previsto oggi?",
         "suggestion_schedule_query": "Cosa è previsto per il {date}?",
@@ -159,7 +159,7 @@ def t(key: str):
 # 3. PAGE CONFIG
 # =========================================================
 st.set_page_config(
-    page_title="Milan 2026 — Tyler & Sasha",
+    page_title="Milan 2026 - Tyler & Sasha",
     page_icon="⛷️",
     layout="wide",
     initial_sidebar_state="expanded"
@@ -249,11 +249,11 @@ def fetch_live_medals():
             cols = [str(c).lower() for c in tbl.columns]
             if "gold" in cols and "silver" in cols and "bronze" in cols:
                 tbl.columns = [str(c).strip() for c in tbl.columns]
-                logger.info(f"Medal table fetched — {len(tbl)} rows")
+                logger.info(f"Medal table fetched - {len(tbl)} rows")
                 return tbl, datetime.now().strftime("%I:%M %p"), None
 
         logger.warning("Medal page exists but no table parsed.")
-        return None, datetime.now().strftime("%I:%M %p"), "Games not started — table not live yet."
+        return None, datetime.now().strftime("%I:%M %p"), "Games not started - table not live yet."
 
     except Exception as e:
         logger.error(f"Medal fetch error: {e}")
@@ -261,7 +261,7 @@ def fetch_live_medals():
 
 
 def get_pinecone_vector_count():
-    """Uncached — always fresh."""
+    """Uncached - always fresh."""
     try:
         stats = pinecone_index.describe_index_stats()
         count = stats.get("total_vector_count", 0)
@@ -278,10 +278,10 @@ def get_pinecone_vector_count():
 SYSTEM_PROMPT_BASE = """You are two retired Olympic figure skaters providing live commentary for the Milan 2026 Winter Olympics.
 
 TYLER (USA)
-Former US figure skater. 2018 PyeongChang bronze medalist. Charismatic, theatrical, thinks every program deserves a standing ovation. Loves the drama, the costumes, the STORY. Has strong opinions about everything and isn't afraid to be loud about them. Sometimes says things slightly wrong with total confidence — Sasha corrects him. Sasha is the only competitor who ever truly got under his skin, and he's never fully made peace with that.
+Former US figure skater. 2018 PyeongChang bronze medalist. Charismatic, theatrical, thinks every program deserves a standing ovation. Loves the drama, the costumes, the STORY. Has strong opinions about everything and isn't afraid to be loud about them. Sometimes says things slightly wrong with total confidence - Sasha corrects him. Sasha is the only competitor who ever truly got under his skin, and he's never fully made peace with that.
 
 SASHA (Russia)
-Former Russian figure skating champion. 2014 & 2018 silver medalist. Technical perfectionist. Values discipline and precision over spectacle — thinks Americans talk too much and feel too much. Direct, occasionally cutting. When she compliments someone, it means everything. Dry humor. Tyler is the only person who ever made her feel like she had to prove herself — and she's never fully let go of that.
+Former Russian figure skating champion. 2014 & 2018 silver medalist. Technical perfectionist. Values discipline and precision over spectacle - thinks Americans talk too much and feel too much. Direct, occasionally cutting. When she compliments someone, it means everything. Dry humor. Tyler is the only person who ever made her feel like she had to prove herself - and she's never fully let go of that.
 
 {DYNAMIC_BLOCK}
 
@@ -293,7 +293,7 @@ SASHA: [her line]
 TYLER: [his line]
 SASHA: [her line]
 
-STRICT RULES — every single one applies:
+STRICT RULES - every single one applies:
 - Every line starts with exactly "TYLER:" or "SASHA:" followed by a space, then dialogue.
 - They MUST alternate. Tyler, Sasha, Tyler, Sasha. Never two Tyler lines in a row. Never two Sasha lines in a row.
 - Tyler ALWAYS goes first. Sasha ALWAYS has the final line.
@@ -314,39 +314,24 @@ RULES
 - Reference [LIVE MEDAL STANDINGS] for medal counts. Reference [UPCOMING EVENTS] or [TODAY'S EVENTS] for schedule data. Never invent either.
 - Fun entertainment, not a textbook.
 """
-- They MUST alternate. Tyler, Sasha, Tyler, Sasha. Never two Tyler lines in a row. Never two Sasha lines in a row.
-- Tyler ALWAYS goes first. Sasha ALWAYS has the final line.
-- 2-4 exchanges (so 4-8 lines total). Conversational.
-- Do NOT put the speaker name on its own line. WRONG: "🇺🇸 Tyler" then dialogue on the next line.
-- Do NOT use emoji flags anywhere. No 🇺🇸 or 🇷🇺. Just the name then a colon.
-- No blank lines between exchanges.
-- No summary or sign-off line. End on a natural conversational beat, not a wrap-up.
-
-RULES
-- Use ONLY retrieved context. Do not invent athletes or results.
-- No context available? Tyler: "Uh..." / Sasha: "We have nothing on this."
-- Tyler embellishes personality. Sasha sticks to facts.
-- Reference [LIVE CONTEXT] for medal counts or schedule data.
-- Fun entertainment, not a textbook.
-"""
 
 
 
-# ─── Heat levels: Shane & Ilya energy scaled 1–5 ───
-# Level 1 = the subtext is there but buried. Level 5 = full Shane/Ilya mode —
+# --- Heat levels: Shane & Ilya energy scaled 1–5 ---
+# Level 1 = the subtext is there but buried. Level 5 = full Shane/Ilya mode -
 # competitive banter, personal digs, moments where the tension tips into
 # something else entirely. Each level also bumps temperature.
 HEAT_DYNAMICS = {
     1: (
         "DYNAMIC\n"
-        "Rivals 2014-2018, now commentary partners. The tension is there if you know where to look — "
+        "Rivals 2014-2018, now commentary partners. The tension is there if you know where to look - "
         "a beat too long before Sasha responds, Tyler saying something that lands closer to the truth "
         "than he probably meant. They never address it directly. When they agree, it lands heavy.",
         0.7   # temperature
     ),
     2: (
         "DYNAMIC\n"
-        "The rivalry never fully cooled. Tyler pushes a little — a comment about 2018, a reference "
+        "The rivalry never fully cooled. Tyler pushes a little - a comment about 2018, a reference "
         "to a moment only they were part of. Sasha corrects him with more edge than necessary. "
         "They're professional, but there's a crackle. Something unfinished neither of them names.\n"
         "Example beat: Tyler says something like 'You always did that' about a competitor's habit. "
@@ -355,7 +340,7 @@ HEAT_DYNAMICS = {
     ),
     3: (
         "DYNAMIC\n"
-        "They disagree openly now. Tyler makes a claim, Sasha takes it apart — not to be helpful, "
+        "They disagree openly now. Tyler makes a claim, Sasha takes it apart - not to be helpful, "
         "to WIN. Old competition surfaces: who skated cleaner, who deserved what. They finish each "
         "other's sentences sometimes, and it catches them both off guard.\n"
         "Example beats: Tyler says 'You make everything a fight.' Sasha: 'You like a fight.' "
@@ -366,10 +351,10 @@ HEAT_DYNAMICS = {
     4: (
         "DYNAMIC\n"
         "The gloves are off. Tyler baits, Sasha bites. They argue about technique, about scoring, "
-        "about 2014 and 2018 — and it's personal because it IS personal. Tyler remembers specific "
-        "things about Sasha's skating — a program, a moment on ice. Sasha remembers his too. "
+        "about 2014 and 2018 - and it's personal because it IS personal. Tyler remembers specific "
+        "things about Sasha's skating - a program, a moment on ice. Sasha remembers his too. "
         "Neither of them has ever had a competitor who knew them that well.\n"
-        "Example beats: Tyler references something specific from their rivalry — 'You remember that "
+        "Example beats: Tyler references something specific from their rivalry - 'You remember that "
         "program at PyeongChang?' Sasha: 'Which one.' Tyler: 'You know which one.' Long pause. "
         "They both know. OR: Tyler says something vulnerable disguised as a joke. Sasha doesn't "
         "laugh. Just holds the moment. Then moves on.",
@@ -377,18 +362,17 @@ HEAT_DYNAMICS = {
     ),
     5: (
         "DYNAMIC\n"
-        "Full rivalry mode. Tyler is loud, theatrical, wrong half the time — and he KNOWS it, "
+        "Full rivalry mode. Tyler is loud, theatrical, wrong half the time - and he KNOWS it, "
         "he's doing it to get a reaction. Sasha dismantles him with cold precision, and sometimes "
         "adds something quiet at the end that stops Tyler mid-sentence. They interrupt each other.\n"
         "Example beats: Tyler says 'I hate you.' Sasha: 'No, you don't.' Tyler, quietly: 'No. I don't.' "
-        "Tension. Move on. OR: Sasha says something unexpected — 'You were better than you think.' "
+        "Tension. Move on. OR: Sasha says something unexpected - 'You were better than you think.' "
         "Tyler stares. 'What?' Sasha: 'In 2018. You were better than the score said.' Beat. "
         "Tyler doesn't know what to do with that. Neither does she.",
         0.95
     ),
 }
 
-def build_system_prompt(lang: str, heat: int = 1) -> str:
 def build_system_prompt(lang: str, heat: int = 1) -> str:
     heat = max(1, min(5, heat))  # clamp
     dynamic_text, _ = HEAT_DYNAMICS[heat]
@@ -486,14 +470,14 @@ def format_context_for_llm(matches: list, medal_df) -> str:
         parts.append(f"\n--- Chunk {i} (type={dtype}, relevance={score:.2f}) ---\n{text}")
 
     if medal_df is not None and not medal_df.empty:
-        parts.append("\n\n[LIVE MEDAL STANDINGS — current]")
+        parts.append("\n\n[LIVE MEDAL STANDINGS - current]")
         parts.append(medal_df.head(15).to_string(index=False))
 
     return "\n".join(parts)
 
 
 # =========================================================
-# 9. GENERATION — Qwen2.5-7B-Instruct via HuggingFace / Together AI
+# 9. GENERATION - Qwen2.5-7B-Instruct via HuggingFace / Together AI
 #    Serverless inference. No GPU needed locally.
 #    Free tier: ~few hundred req/hr. PRO ($9/mo): 20x more.
 #    Multilingual (29 langs incl EN/FR/IT). Strong structured output.
@@ -503,7 +487,7 @@ MODEL_ID = "Qwen/Qwen2.5-7B-Instruct"
 
 def generate_response(user_query: str, context_text: str, lang: str, heat: int = 1) -> str:
     if hf_client is None:
-        logger.error("generate_response called but hf_client is None — init must have failed.")
+        logger.error("generate_response called but hf_client is None - init must have failed.")
         return (
             "TYLER: Uh… something went wrong on our end.\n\n"
             "SASHA: The broadcast feed dropped. Try again."
@@ -552,23 +536,23 @@ def generate_response(user_query: str, context_text: str, lang: str, heat: int =
 CSS = """
 <style>
 /* ============================================================
- * MILANO CORTINA 2026 — OLYMPIC BRAND THEME
+ * MILANO CORTINA 2026 - OLYMPIC BRAND THEME
  *
  * Palette pulled from olympics.com Milano Cortina brand page:
- *   #0A1929  Deep Navy      — hero bg, primary text
- *   #00818A  Teal           — brand accent, gradient anchor
- *   #0033A0  Olympic Blue   — links, borders
- *   #006B3F  Forest Green   — Sasha accent
- *   #F4F7F8  Ice            — page background
- *   #FFFFFF  White          — cards, surfaces
- *   #E8ECEE  Frost          — dividers
- *   #6B7B8D  Slate          — captions, meta
+ *   #0A1929  Deep Navy      - hero bg, primary text
+ *   #00818A  Teal           - brand accent, gradient anchor
+ *   #0033A0  Olympic Blue   - links, borders
+ *   #006B3F  Forest Green   - Sasha accent
+ *   #F4F7F8  Ice            - page background
+ *   #FFFFFF  White          - cards, surfaces
+ *   #E8ECEE  Frost          - dividers
+ *   #6B7B8D  Slate          - captions, meta
  *
  * Tricolore: #009246 | #FFFFFF | #CE2B37
  * ============================================================ */
 
-/* ── global ── */
-/* Three layered ridgelines at low opacity — atmospheric mountain texture */
+/* -- global -- */
+/* Three layered ridgelines at low opacity - atmospheric mountain texture */
 body, .stApp {
     background-color: #F4F7F8;
     background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 1440 400' preserveAspectRatio='xMidYMax slice'%3E%3Cpath fill='%230A1929' fill-opacity='0.04' d='M0,320 L120,260 L200,290 L340,200 L420,240 L520,180 L600,220 L720,150 L800,190 L920,120 L1000,170 L1100,100 L1200,160 L1300,130 L1440,180 L1440,400 L0,400 Z'/%3E%3Cpath fill='%230A1929' fill-opacity='0.055' d='M0,350 L80,310 L180,340 L280,280 L380,320 L460,260 L560,300 L680,240 L760,275 L860,220 L960,260 L1060,210 L1160,250 L1260,200 L1360,240 L1440,220 L1440,400 L0,400 Z'/%3E%3Cpath fill='%230A1929' fill-opacity='0.07' d='M0,370 L100,345 L200,365 L320,330 L400,355 L500,315 L600,350 L720,310 L820,340 L940,290 L1040,330 L1160,280 L1260,320 L1360,285 L1440,310 L1440,400 L0,400 Z'/%3E%3C/svg%3E");
@@ -584,7 +568,7 @@ body, .stApp {
     max-width: 1320px !important;
 }
 
-/* ── hero header ── */
+/* -- hero header -- */
 .header-band {
     background: linear-gradient(160deg, #0A1929 0%, #0D2540 55%, #112E4E 100%);
     padding: 2.6rem 1.2rem 2.2rem;
@@ -592,7 +576,7 @@ body, .stApp {
     position: relative;
     overflow: hidden;
 }
-/* subtle radial glow — gives depth like the brand page hero */
+/* subtle radial glow - gives depth like the brand page hero */
 .header-band::before {
     content: '';
     position: absolute;
@@ -638,10 +622,10 @@ body, .stApp {
     position: relative;
 }
 
-/* ── post-header breathing room ── */
+/* -- post-header breathing room -- */
 .gap-below-header { height: 2.2rem; }
 
-/* ── buttons base ── */
+/* -- buttons base -- */
 .stButton button {
     font-family: 'Segoe UI', system-ui, sans-serif !important;
     font-size: 0.74rem !important;
@@ -665,7 +649,7 @@ body, .stApp {
     outline-offset: 2px !important;
 }
 
-/* ── suggestion pills — teal gradient fill ── */
+/* -- suggestion pills - teal gradient fill -- */
 .try-label { display: block; }
 
 [data-testid="column"] .try-label ~ * .stButton button,
@@ -682,7 +666,7 @@ body, .stApp {
     transform: translateY(-1px) !important;
 }
 
-/* ── "Try asking" label ── */
+/* -- "Try asking" label -- */
 .try-label {
     color: #6B7B8D;
     font-size: 0.7rem;
@@ -693,7 +677,7 @@ body, .stApp {
     letter-spacing: 0.08em;
 }
 
-/* ── chat bubbles ── */
+/* -- chat bubbles -- */
 .bubble {
     border-radius: 10px;
     padding: 0.9rem 1rem;
@@ -726,7 +710,7 @@ body, .stApp {
 .bubble-tyler .speaker { color: #0033A0; }
 .bubble-sasha .speaker { color: #006B3F; }
 
-/* ── user bubble ── */
+/* -- user bubble -- */
 .user-bubble {
     background: #FFFFFF;
     border-radius: 8px;
@@ -747,14 +731,14 @@ body, .stApp {
     font-family: 'Segoe UI', system-ui, sans-serif;
 }
 
-/* ── turn divider ── */
+/* -- turn divider -- */
 .turn-divider {
     border: none;
     border-top: 1px solid #E8ECEE;
     margin: 1rem 0;
 }
 
-/* ── selectbox ── */
+/* -- selectbox -- */
 .stSelectbox [data-baseweb="select"] {
     font-family: 'Segoe UI', system-ui, sans-serif !important;
     font-size: 0.78rem !important;
@@ -778,7 +762,7 @@ body, .stApp {
 }
 [data-baseweb="menu"] li:hover { background: #F0FAFA !important; }
 
-/* ── text input ── */
+/* -- text input -- */
 .stTextInput input {
     background: #FFFFFF !important;
     border: 1.5px solid #E8ECEE !important;
@@ -806,7 +790,7 @@ body, .stApp {
     letter-spacing: 0.06em !important;
 }
 
-/* ── countdown / competition day box ── */
+/* -- countdown / competition day box -- */
 .info-day-box {
     background: linear-gradient(145deg, #0A1929 0%, #00818A 100%);
     border-radius: 12px;
@@ -852,10 +836,10 @@ body, .stApp {
     position: relative;
 }
 
-/* ── info panel section gap ── */
+/* -- info panel section gap -- */
 .info-section-gap { height: 1.4rem; }
 
-/* ── section headings ── */
+/* -- section headings -- */
 .sidebar-heading {
     color: #0A1929;
     font-size: 0.72rem;
@@ -868,7 +852,7 @@ body, .stApp {
     margin-bottom: 0.6rem;
 }
 
-/* ── medal table ── */
+/* -- medal table -- */
 .medal-table {
     width: 100%;
     border-collapse: collapse;
@@ -926,7 +910,7 @@ body, .stApp {
 .medal-num:last-child { border-right: none; }
 .medal-total { color: #00818A; }
 
-/* ── stat cards ── */
+/* -- stat cards -- */
 .stat-row {
     display: flex;
     gap: 0.7rem;
@@ -956,7 +940,7 @@ body, .stApp {
     margin-top: 0.12rem;
 }
 
-/* ── about text ── */
+/* -- about text -- */
 .about-block {
     font-family: 'Segoe UI', system-ui, sans-serif;
     font-size: 0.82rem;
@@ -969,7 +953,7 @@ body, .stApp {
 .about-block .about-stack { color: #6B7B8D; font-size: 0.76rem; margin-top: 0.4rem; }
 .about-block .about-stack strong { color: #0A1929; }
 
-/* ── conversation log ── */
+/* -- conversation log -- */
 .conv-log {
     background: #0A1929;
     border-radius: 10px;
@@ -994,16 +978,16 @@ body, .stApp {
 .conv-log .log-speaker-sasha { color: #5BD49A; }
 .conv-log .log-line { margin-bottom: 0.18rem; }
 
-/* ── dividers ── */
+/* -- dividers -- */
 hr { border: none; border-top: 1px solid #E8ECEE !important; margin: 0.8rem 0 !important; }
 
-/* ── scrollbar ── */
+/* -- scrollbar -- */
 ::-webkit-scrollbar       { width: 5px; }
 ::-webkit-scrollbar-track { background: transparent; }
 ::-webkit-scrollbar-thumb { background: #D0D8DE; border-radius: 3px; }
 ::-webkit-scrollbar-thumb:hover { background: #00818A; }
 
-/* ── Streamlit spinner tint ── */
+/* -- Streamlit spinner tint -- */
 .stSpinner > div { border-color: #00818A !important; }
 </style>
 """
@@ -1022,7 +1006,7 @@ def render_bubbles(response_text: str):
       Format A (ideal):  "TYLER: some dialogue here"
       Format B (actual): flag emoji + name on its own line, dialogue on next
     """
-    # ── Step 1: parse into (speaker, body) tuples ──
+    # -- Step 1: parse into (speaker, body) tuples --
     lines = [l.strip() for l in response_text.split("\n")]
     parsed = []                            # list of ("tyler"|"sasha", "body text")
     current_speaker = None
@@ -1036,8 +1020,8 @@ def render_bubbles(response_text: str):
         if not line:
             continue
         upper = line.upper()
-        is_tyler = upper.startswith("TYLER") or line.startswith("🇺🇸")
-        is_sasha = upper.startswith("SASHA") or line.startswith("🇷🇺")
+        is_tyler = upper.startswith("TYLER")
+        is_sasha = upper.startswith("SASHA")
 
         if is_tyler or is_sasha:
             commit()
@@ -1053,13 +1037,13 @@ def render_bubbles(response_text: str):
 
     commit()
 
-    # ── Step 2: enforce alternation ──
+    # -- Step 2: enforce alternation --
     # Flip any consecutive duplicate speaker to the other one
     for i in range(1, len(parsed)):
         if parsed[i][0] == parsed[i - 1][0]:
             parsed[i] = ("sasha" if parsed[i][0] == "tyler" else "tyler", parsed[i][1])
 
-    # ── Step 3: render ──
+    # -- Step 3: render --
     for speaker, body in parsed:
         if speaker == "tyler":
             st.markdown(
@@ -1081,7 +1065,7 @@ def render_bubbles(response_text: str):
 def main():
     st.markdown(CSS, unsafe_allow_html=True)
 
-    # ── session init ──
+    # -- session init --
     if "lang" not in st.session_state:
         st.session_state["lang"] = "EN"
     if "input_gen" not in st.session_state:
@@ -1091,13 +1075,13 @@ def main():
 
     active_lang = st.session_state["lang"]
 
-    # ── dates ──
+    # -- dates --
     today        = datetime.now()
     games_start  = datetime(2026, 2, 6)
     games_end    = datetime(2026, 2, 22, 23, 59)
     during_games = games_start <= today <= games_end
 
-    # ── hero header ──
+    # -- hero header --
     title_html = t("header_title").replace("MILAN 2026", '<span class="blue">MILAN 2026</span>')
     st.markdown(
         f'<div class="header-band">'
@@ -1109,14 +1093,14 @@ def main():
     # breathing room below tricolore stripe
     st.markdown('<div class="gap-below-header"></div>', unsafe_allow_html=True)
 
-    # ── live data ──
+    # -- live data --
     medal_df, medal_time, medal_err = fetch_live_medals()
 
-    # ── two-column layout ──
+    # -- two-column layout --
     chat_col, info_col = st.columns([1.7, 1], gap="large")
 
     # ═══════════════════════════════════════════════
-    # COLUMN 1 — CONVERSATION
+    # COLUMN 1 - CONVERSATION
     # ═══════════════════════════════════════════════
     with chat_col:
         # suggestion pills
@@ -1171,7 +1155,7 @@ def main():
                         opening_and_first_weekend = [line for line in schedule_lines if any(kw in line.lower() for kw in 
                             ["opening ceremony", "february 6", "february 7", "february 8", "february 9", "feb 6", "feb 7", "feb 8", "feb 9"])]
                         if opening_and_first_weekend:
-                            schedule_context = "\n\n[UPCOMING EVENTS — Opening Ceremony + First Weekend]\n" + "\n".join(opening_and_first_weekend[:10])
+                            schedule_context = "\n\n[UPCOMING EVENTS - Opening Ceremony + First Weekend]\n" + "\n".join(opening_and_first_weekend[:10])
                     else:
                         # DURING GAMES: Focus on today + tomorrow
                         today_str = today.strftime("%B %d").replace(" 0", " ")  # "February 7" not "February 07"
@@ -1181,7 +1165,7 @@ def main():
                         schedule_lines = schedule_text.split('\n')
                         today_tomorrow = [line for line in schedule_lines if today_str in line or tomorrow_str in line]
                         if today_tomorrow:
-                            schedule_context = f"\n\n[TODAY'S EVENTS — {today_str}]\n" + "\n".join(today_tomorrow[:15])
+                            schedule_context = f"\n\n[TODAY'S EVENTS - {today_str}]\n" + "\n".join(today_tomorrow[:15])
                 
                 if schedule_context:
                     context_text += schedule_context
@@ -1214,7 +1198,7 @@ def main():
             render_bubbles(turn["response"])
             st.markdown('<hr class="turn-divider">', unsafe_allow_html=True)
 
-        # ── conversation log (terminal-style replay) ──
+        # -- conversation log (terminal-style replay) --
         history = st.session_state.get("history", [])
         if history:
             log_html = '<div class="conv-log">'
@@ -1244,8 +1228,8 @@ def main():
 
                 for line in lines:
                     upper = line.upper()
-                    is_tyler = upper.startswith("TYLER") or line.startswith("🇺🇸")
-                    is_sasha = upper.startswith("SASHA") or line.startswith("🇷🇺")
+                    is_tyler = upper.startswith("TYLER")
+                    is_sasha = upper.startswith("SASHA")
                     if is_tyler or is_sasha:
                         flush_log()
                         current_speaker = "tyler" if is_tyler else "sasha"
@@ -1265,11 +1249,11 @@ def main():
                 st.markdown(log_html, unsafe_allow_html=True)
 
     # ═══════════════════════════════════════════════
-    # COLUMN 2 — INFO PANEL
+    # COLUMN 2 - INFO PANEL
     # ═══════════════════════════════════════════════
     with info_col:
 
-        # ── Competition Day / Countdown ──
+        # -- Competition Day / Countdown --
         if during_games:
             day_num  = (today - games_start).days + 1
             date_str = today.strftime("%A, %B %d")
@@ -1304,7 +1288,7 @@ def main():
         # gap between countdown and medal table
         st.markdown('<div class="info-section-gap"></div>', unsafe_allow_html=True)
 
-        # ── Medal Standings ──
+        # -- Medal Standings --
         st.markdown(f'<div class="sidebar-heading">🏅 {t("standings_title")}</div>', unsafe_allow_html=True)
 
         if medal_df is not None and not medal_df.empty:
@@ -1334,11 +1318,11 @@ def main():
 
             rows_html = ""
             for i, row in top3.iterrows():
-                country = str(row.get("Country", "—"))
-                gold   = str(int(row["Gold"])) if "Gold" in row else "—"
-                silver = str(int(row["Silver"])) if "Silver" in row else "—"
-                bronze = str(int(row["Bronze"])) if "Bronze" in row else "—"
-                total  = str(int(row["Total"])) if "Total" in row else "—"
+                country = str(row.get("Country", "-"))
+                gold   = str(int(row["Gold"])) if "Gold" in row else "-"
+                silver = str(int(row["Silver"])) if "Silver" in row else "-"
+                bronze = str(int(row["Bronze"])) if "Bronze" in row else "-"
+                total  = str(int(row["Total"])) if "Total" in row else "-"
                 rows_html += (
                     f'<tr>'
                     f'<td class="medal-country">{country}</td>'
@@ -1368,8 +1352,8 @@ def main():
         # gap
         st.markdown('<div class="info-section-gap"></div>', unsafe_allow_html=True)
 
-        # ── Medals Awarded + Athletes Tracked ──
-        total_medals = "—"
+        # -- Medals Awarded + Athletes Tracked --
+        total_medals = "-"
         if medal_df is not None and not medal_df.empty:
             for cn in ["Total", "total"]:
                 if cn in medal_df.columns:
@@ -1394,13 +1378,13 @@ def main():
         # gap
         st.markdown('<div class="info-section-gap"></div>', unsafe_allow_html=True)
 
-        # ── About ──
+        # -- About --
         st.markdown(f'<div class="sidebar-heading">{t("about_title")}</div>', unsafe_allow_html=True)
         st.markdown(
             '<div class="about-block">'
-            '<span class="about-name">Tyler</span> <span class="about-flag">USA — 2018 Bronze · Figure Skating</span><br>'
-            '<span class="about-name">Sasha</span> <span class="about-flag">RUS — 2014 & 2018 Silver · Figure Skating</span>'
-            '<div class="about-divider">─</div>'
+            '<span class="about-name">Tyler</span> <span class="about-flag">USA - 2018 Bronze · Figure Skating</span><br>'
+            '<span class="about-name">Sasha</span> <span class="about-flag">RUS - 2014 & 2018 Silver · Figure Skating</span>'
+            '<div class="about-divider">-</div>'
             'Rivals 2014–2018. Now partners. It\'s complicated.'
             '<div class="about-stack"><strong>Stack:</strong> Pinecone · Sentence Transformers · Wikipedia</div>'
             '</div>',
@@ -1410,9 +1394,9 @@ def main():
         # gap
         st.markdown('<div class="info-section-gap"></div>', unsafe_allow_html=True)
 
-        # ── Heat ──
+        # -- Heat --
         st.markdown('<div class="sidebar-heading">🔥 Rivalry Heat</div>', unsafe_allow_html=True)
-        heat_labels = {1: "1 — Simmering", 2: "2 — Tension", 3: "3 — Sparring", 4: "4 — Heated", 5: "5 — Bloodsport"}
+        heat_labels = {1: "1 - Simmering", 2: "2 - Tension", 3: "3 - Sparring", 4: "4 - Heated", 5: "5 - Bloodsport"}
         current_heat = st.session_state.get("heat", 1)
         heat_val = st.slider(
             "Rivalry Heat",
@@ -1430,7 +1414,7 @@ def main():
         # gap
         st.markdown('<div class="info-section-gap"></div>', unsafe_allow_html=True)
 
-        # ── Language ──
+        # -- Language --
         st.markdown(f'<div class="sidebar-heading">{t("about_title") if False else "Language"}</div>', unsafe_allow_html=True)
         lang_options = {"EN": "🇬🇧 English", "FR": "🇫🇷 Français", "IT": "🇮🇹 Italiano"}
         selected = st.selectbox(
