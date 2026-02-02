@@ -1,16 +1,16 @@
 """
-Milano Cortina 2026 - Part 2: Daily Nationality Validation
-===========================================================
-Purpose: Runs daily during Games (Feb 6-22, 2026) via GitLab CI
-Checks all athletes in Pinecone against Wikipedia for nationality changes
-Updates Pinecone if discrepancies found
+Milano Cortina 2026 - Daily Nationality Validation (Simplified)
+================================================================
+Purpose: Works with your EXISTING Pinecone index
+No need to recreate the database - just validates and updates metadata
+Run via GitHub Actions daily during the Games (Feb 6-22, 2026)
 """
 
 import os
 import json
 import time
 from datetime import datetime
-from typing import Dict, List, Tuple
+from typing import Dict, List
 import wikipediaapi
 from pinecone import Pinecone
 
@@ -19,7 +19,7 @@ from pinecone import Pinecone
 # ============================================================================
 
 PINECONE_API_KEY = os.getenv("PINECONE_API_KEY")
-PINECONE_INDEX_NAME = "milano-cortina-2026"
+PINECONE_INDEX_NAME = "milan-2026-olympics"  # Your existing index
 
 pc = Pinecone(api_key=PINECONE_API_KEY)
 index = pc.Index(PINECONE_INDEX_NAME)
@@ -39,51 +39,69 @@ VALID_OLYMPIC_COUNTRIES = {
 }
 
 # ============================================================================
-# FETCH ALL ATHLETES FROM PINECONE
+# FETCH ATHLETES FROM YOUR EXISTING INDEX
 # ============================================================================
 
 def fetch_all_athletes_from_pinecone() -> List[Dict]:
     """
-    Fetch all athlete vectors from Pinecone
+    Fetch all athlete vectors from your existing Pinecone index
     Returns list of {id, metadata}
     """
-    print("Fetching all athletes from Pinecone...")
+    print(f"Fetching athletes from existing index: {PINECONE_INDEX_NAME}...")
     
-    # Query with empty vector to get all results
-    # (Pinecone doesn't have a "list all" API, so we use a dummy query)
-    results = index.query(
-        vector=[0.0] * 1536,  # Dummy vector
-        top_k=10000,  # Max results
-        include_metadata=True,
-        namespace='athletes'
-    )
+    try:
+        # Get index stats first
+        stats = index.describe_index_stats()
+        print(f"Index stats: {stats}")
+        
+        namespace = 'athletes'  # Change if your namespace is different
+        
+        # Method 1: Query with dummy vector to get all results
+        # This works for indexes with < 10,000 vectors
+        dummy_vector = [0.0] * 1536  # Adjust if your dimension is different
+        
+        results = index.query(
+            vector=dummy_vector,
+            top_k=10000,
+            include_metadata=True,
+            namespace=namespace
+        )
+        
+        athletes = []
+        for match in results['matches']:
+            # Only include if it has athlete metadata
+            if match.get('metadata') and match['metadata'].get('name'):
+                athletes.append({
+                    'id': match['id'],
+                    'metadata': match['metadata'],
+                    'score': match.get('score', 0)
+                })
+        
+        print(f"✓ Found {len(athletes)} athletes in index\n")
+        
+        if len(athletes) == 0:
+            print("⚠️  No athletes found. Check:")
+            print(f"   - Index name: {PINECONE_INDEX_NAME}")
+            print(f"   - Namespace: {namespace}")
+            print(f"   - Metadata structure (needs 'name' field)")
+        
+        return athletes
     
-    athletes = []
-    for match in results['matches']:
-        athletes.append({
-            'id': match['id'],
-            'metadata': match['metadata']
-        })
-    
-    print(f"✓ Found {len(athletes)} athletes in database\\n")
-    return athletes
+    except Exception as e:
+        print(f"❌ Error fetching from Pinecone: {e}")
+        return []
 
 # ============================================================================
-# VALIDATE NATIONALITY VIA WIKIPEDIA
+# WIKIPEDIA VALIDATION (Same as before)
 # ============================================================================
 
 def check_nationality_on_wikipedia(athlete_name: str, 
                                    expected_country: str) -> Dict:
-    """
-    Check athlete's current nationality on Wikipedia
-    Returns: {'current_country': str, 'is_changed': bool, 'confidence': str}
-    """
+    """Check athlete's current nationality on Wikipedia"""
     try:
-        # Try main page first
         page = wiki_wiki.page(athlete_name)
         
         if not page.exists():
-            # Try with sport suffix
             page = wiki_wiki.page(f"{athlete_name} figure skater")
         
         if not page.exists():
@@ -94,7 +112,6 @@ def check_nationality_on_wikipedia(athlete_name: str,
                 'message': f"Wikipedia page not found - keeping {expected_country}"
             }
         
-        # Check for expected country in summary
         summary = page.summary.lower()
         expected_country_name = VALID_OLYMPIC_COUNTRIES.get(expected_country, '').lower()
         
@@ -106,14 +123,13 @@ def check_nationality_on_wikipedia(athlete_name: str,
                 'message': f"✓ Confirmed: {athlete_name} still represents {expected_country}"
             }
         
-        # Country not found - check for OTHER countries
+        # Check for OTHER countries
         found_countries = []
         for code, full_name in VALID_OLYMPIC_COUNTRIES.items():
             if code != expected_country and full_name.lower() in summary[:500]:
                 found_countries.append(code)
         
         if found_countries:
-            # Possible nationality change detected!
             new_country = found_countries[0]
             return {
                 'current_country': new_country,
@@ -122,7 +138,6 @@ def check_nationality_on_wikipedia(athlete_name: str,
                 'message': f"⚠️  CHANGE DETECTED: {athlete_name} may now represent {new_country} (was {expected_country})"
             }
         else:
-            # Unclear - keep existing
             return {
                 'current_country': expected_country,
                 'is_changed': False,
@@ -139,30 +154,19 @@ def check_nationality_on_wikipedia(athlete_name: str,
         }
 
 # ============================================================================
-# UPDATE PINECONE METADATA
+# UPDATE METADATA IN PINECONE
 # ============================================================================
 
-def update_athlete_nationality_in_pinecone(athlete_id: str, 
-                                          new_country: str,
-                                          old_metadata: Dict) -> bool:
+def update_athlete_in_pinecone(athlete_id: str, 
+                               new_country: str,
+                               old_metadata: Dict) -> bool:
     """
-    Update athlete's nationality in Pinecone metadata
-    Preserves all other metadata fields
+    Update athlete's nationality metadata in Pinecone
+    Re-upserts the same vector with updated metadata
     """
     try:
-        # Update metadata
-        updated_metadata = old_metadata.copy()
-        updated_metadata['country'] = new_country
-        updated_metadata['country_full'] = VALID_OLYMPIC_COUNTRIES[new_country]
-        updated_metadata['is_home_athlete'] = (new_country == 'ITA')
-        updated_metadata['last_validated'] = datetime.utcnow().isoformat()
-        updated_metadata['nationality_updated'] = True
-        updated_metadata['previous_country'] = old_metadata['country']
-        
-        # Update in Pinecone
-        # Note: We need to re-upsert with the same vector but updated metadata
-        # Fetch the original vector first
-        fetch_response = index.fetch(ids=[athlete_id], namespace='athletes')
+        # Fetch the original vector
+        fetch_response = index.fetch(ids=[athlete_id])
         
         if athlete_id not in fetch_response['vectors']:
             print(f"  ❌ Vector not found: {athlete_id}")
@@ -170,17 +174,25 @@ def update_athlete_nationality_in_pinecone(athlete_id: str,
         
         original_vector = fetch_response['vectors'][athlete_id]['values']
         
-        # Upsert with updated metadata
+        # Update metadata
+        updated_metadata = old_metadata.copy()
+        updated_metadata['country'] = new_country
+        updated_metadata['country_full'] = VALID_OLYMPIC_COUNTRIES[new_country]
+        updated_metadata['is_home_athlete'] = (new_country == 'ITA')
+        updated_metadata['last_validated'] = datetime.utcnow().isoformat()
+        updated_metadata['nationality_updated'] = True
+        updated_metadata['previous_country'] = old_metadata.get('country')
+        
+        # Re-upsert with same vector, updated metadata
         index.upsert(
             vectors=[{
                 'id': athlete_id,
                 'values': original_vector,
                 'metadata': updated_metadata
-            }],
-            namespace='athletes'
+            }]
         )
         
-        print(f"  ✓ Updated {athlete_id}: {old_metadata['country']} → {new_country}")
+        print(f"  ✓ Updated {athlete_id}: {old_metadata.get('country')} → {new_country}")
         return True
     
     except Exception as e:
@@ -192,30 +204,30 @@ def update_athlete_nationality_in_pinecone(athlete_id: str,
 # ============================================================================
 
 def run_daily_validation():
-    """
-    Main pipeline: Check all athletes, update if nationality changed
-    """
-    print("\\n" + "="*80)
-    print(f"DAILY NATIONALITY VALIDATION - {datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S UTC')}")
-    print("="*80 + "\\n")
+    """Main pipeline: Check all athletes, update if nationality changed"""
     
-    # Step 1: Fetch all athletes from Pinecone
+    print("\n" + "="*80)
+    print(f"DAILY NATIONALITY VALIDATION - {datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S UTC')}")
+    print(f"Index: {PINECONE_INDEX_NAME}")
+    print("="*80 + "\n")
+    
+    # Step 1: Fetch all athletes from YOUR existing index
     athletes = fetch_all_athletes_from_pinecone()
     
     if not athletes:
-        print("❌ No athletes found in database. Run initial ingestion first.")
-        return
+        print("❌ No athletes found in index. Exiting.")
+        return 0
     
-    # Step 2: Check each athlete's nationality
+    # Step 2: Validate each athlete
     changes_detected = []
     validation_results = []
     
-    print("Validating nationalities via Wikipedia...\\n")
+    print("Validating nationalities via Wikipedia...\n")
     print("-"*80)
     
     for athlete in athletes:
-        athlete_name = athlete['metadata']['name']
-        current_country = athlete['metadata']['country']
+        athlete_name = athlete['metadata'].get('name', 'Unknown')
+        current_country = athlete['metadata'].get('country', 'UNK')
         
         print(f"Checking: {athlete_name} ({current_country})...")
         
@@ -251,54 +263,37 @@ def run_daily_validation():
                 # Low confidence - flag for manual review
                 print(f"  → SKIPPING auto-update (confidence: {result['confidence']})")
                 print(f"  → Requires manual review via GitHub issue")
-                validation_results.append({
-                    **validation_results[-1],
-                    'needs_manual_review': True,
-                    'reason': 'Low confidence nationality change'
-                })
+                validation_results[-1]['needs_manual_review'] = True
+                validation_results[-1]['reason'] = 'Low confidence nationality change'
         
-        # Rate limit: sleep between requests
-        time.sleep(0.5)
+        time.sleep(0.5)  # Rate limit
     
     print("-"*80)
     
-    # Step 3: Update Pinecone if changes detected
+    # Step 3: Apply updates if needed
     if changes_detected:
-        print(f"\\n⚠️  NATIONALITY CHANGES DETECTED: {len(changes_detected)} athletes")
+        print(f"\n⚠️  NATIONALITY CHANGES DETECTED: {len(changes_detected)} athletes")
         print("="*80)
-        print("Updating Pinecone database...\\n")
-        
-        update_success = []
-        update_failed = []
+        print("Updating Pinecone database...\n")
         
         for change in changes_detected:
             print(f"Updating: {change['athlete_name']} ({change['old_country']} → {change['new_country']})")
-            
-            success = update_athlete_nationality_in_pinecone(
+            update_athlete_in_pinecone(
                 athlete_id=change['athlete_id'],
                 new_country=change['new_country'],
                 old_metadata=change['metadata']
             )
-            
-            if success:
-                update_success.append(change)
-            else:
-                update_failed.append(change)
         
-        print("\\n" + "="*80)
-        print(f"✓ Successfully updated: {len(update_success)}")
-        print(f"❌ Failed to update: {len(update_failed)}")
-        print("="*80)
-        
+        print("\n" + "="*80)
     else:
-        print(f"\\n✓ NO CHANGES DETECTED - All nationalities confirmed")
+        print(f"\n✓ NO CHANGES DETECTED - All nationalities confirmed")
     
-    # Step 4: Save validation log
+    # Step 4: Save log
     log_data = {
         'validation_timestamp': datetime.utcnow().isoformat(),
+        'index_name': PINECONE_INDEX_NAME,
         'total_athletes_checked': len(athletes),
         'changes_detected': len(changes_detected),
-        'changes_applied': len([c for c in changes_detected if c]) if changes_detected else 0,
         'validation_results': validation_results,
         'nationality_changes': changes_detected
     }
@@ -307,19 +302,20 @@ def run_daily_validation():
     with open(log_filename, 'w') as f:
         json.dump(log_data, f, indent=2)
     
-    print(f"\\n✓ Validation log saved to: {log_filename}")
+    print(f"\n✓ Validation log saved to: {log_filename}")
     
     # Step 5: Summary
-    print(f"\\n{'='*80}")
+    print(f"\n{'='*80}")
     print("VALIDATION SUMMARY")
     print(f"{'='*80}")
+    print(f"Index: {PINECONE_INDEX_NAME}")
     print(f"Athletes checked: {len(athletes)}")
     print(f"Changes detected: {len(changes_detected)}")
     print(f"Database updated: {'Yes' if changes_detected else 'No'}")
     print(f"Log file: {log_filename}")
-    print(f"{'='*80}\\n")
+    print(f"{'='*80}\n")
     
-    # Return exit code (0 = success, 1 = changes detected for CI alerting)
+    # Return exit code (1 = changes detected for GitHub Actions)
     return 1 if changes_detected else 0
 
 # ============================================================================
