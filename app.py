@@ -245,12 +245,7 @@ def fetch_live_medals():
         resp.raise_for_status()
         html = resp.json().get("parse", {}).get("text", {}).get("*", "")
 
-        if not html or not html.strip():
-            logger.warning("Medal page returned empty HTML — not yet populated.")
-            return None, datetime.now().strftime("%I:%M %p"), "Games not started — table not live yet."
-
-        from io import StringIO
-        for tbl in pd.read_html(StringIO(html)):
+        for tbl in pd.read_html(html):
             cols = [str(c).lower() for c in tbl.columns]
             if "gold" in cols and "silver" in cols and "bronze" in cols:
                 tbl.columns = [str(c).strip() for c in tbl.columns]
@@ -263,71 +258,6 @@ def fetch_live_medals():
     except Exception as e:
         logger.error(f"Medal fetch error: {e}")
         return None, datetime.now().strftime("%I:%M %p"), str(e)
-
-
-def fetch_live_schedule():
-    """
-    Wikipedia programme page -> list of upcoming events with dates.
-    Returns (schedule_text: str | None, error: str | None).
-    schedule_text is a plain-text block ready to drop into LLM context.
-    """
-    logger.info("Fetching live schedule…")
-    try:
-        resp = requests.get(
-            "https://en.wikipedia.org/w/api.php",
-            params={
-                "action": "parse",
-                "page":   "2026_Winter_Olympics_programme",
-                "prop":   "text",
-                "format": "json"
-            },
-            headers={"User-Agent": "MilanoCortina2026Bot/1.0 (schedule fetch)"},
-            timeout=12
-        )
-        resp.raise_for_status()
-        html = resp.json().get("parse", {}).get("text", {}).get("*", "")
-
-        if not html or not html.strip():
-            logger.warning("Wikipedia returned empty HTML — page not yet populated.")
-            return None, "Schedule not yet available."
-
-        from io import StringIO
-        upcoming = []
-        for tbl in pd.read_html(StringIO(html)):
-            tbl.columns = [str(c).strip() for c in tbl.columns]
-
-            # Find a date-ish column and an event-ish column
-            date_col, event_col = None, None
-            for c in tbl.columns:
-                cl = c.lower()
-                if not date_col and any(kw in cl for kw in ["date", "day", "february", "feb"]):
-                    date_col = c
-                if not event_col and any(kw in cl for kw in ["event", "discipline", "sport", "competition"]):
-                    event_col = c
-
-            if date_col and event_col:
-                for _, row in tbl.iterrows():
-                    ev   = str(row[event_col]).strip()
-                    dt   = str(row[date_col]).strip()
-                    if ev.lower() in ("", "event", "discipline", "nan"):
-                        continue
-                    upcoming.append(f"{dt} — {ev}")
-
-        if upcoming:
-            seen, deduped = set(), []
-            for line in upcoming:
-                if line not in seen:
-                    seen.add(line)
-                    deduped.append(line)
-            logger.info(f"Schedule fetched — {len(deduped)} events")
-            return "\n".join(deduped[:30]), None
-
-        logger.warning("Schedule page exists but no event tables parsed.")
-        return None, "Schedule not yet available."
-
-    except Exception as e:
-        logger.error(f"Schedule fetch error: {e}")
-        return None, str(e)
 
 
 def get_pinecone_vector_count():
@@ -348,12 +278,13 @@ def get_pinecone_vector_count():
 SYSTEM_PROMPT_BASE = """You are two retired Olympic figure skaters providing live commentary for the Milan 2026 Winter Olympics.
 
 TYLER (USA)
-Former US figure skater. 2018 PyeongChang bronze medalist. Charismatic, theatrical, thinks every program deserves a standing ovation. Loves the drama, the costumes, the STORY. Has strong opinions about everything and isn't afraid to be loud about them. Sometimes says things slightly wrong with total confidence — Sasha corrects him. Sasha is the only competitor who ever truly got under his skin, and he's never fully made peace with that.
+Former US figure skater. 2018 PyeongChang bronze medalist. Enthusiastic, dramatic, makes everything sound like the most exciting thing ever. Loves rivalries and storylines. Sometimes says things slightly wrong with total confidence — Sasha corrects him.
 
 SASHA (Russia)
-Former Russian figure skating champion. 2014 & 2018 silver medalist. Technical perfectionist. Values discipline and precision over spectacle — thinks Americans talk too much and feel too much. Direct, occasionally cutting. When she compliments someone, it means everything. Dry humor. Tyler is the only person who ever made her feel like she had to prove herself — and she's never fully let go of that.
+Former Russian figure skating champion. 2014 & 2018 silver medalist. Deadpan, technically precise, dry humor. Secretly entertained by Tyler but would never admit it. Occasionally lets something slip that reveals she still thinks about their rivalry days.
 
-{DYNAMIC_BLOCK}
+DYNAMIC
+Fierce rivals 2014-2018. Now commentary partners. Unresolved tension leaks through — a pause, a look, an overly casual comment. They NEVER directly address their past, but it's always there. When they BOTH agree, it carries weight.
 
 FORMAT
 Output ONLY lines in this exact pattern. No headers, no preamble, no trailing commentary.
@@ -374,89 +305,21 @@ STRICT RULES — every single one applies:
 - No summary or sign-off line. End on a natural conversational beat, not a wrap-up.
 
 RULES
-- Use ONLY retrieved context. Do not invent athletes, results, dates, or event schedules.
-- SCHEDULE DATES: If you see chunks labeled "SCHEDULE: [event] on [date]", use EXACTLY those dates. Do NOT change, guess, or invent any dates. Every date you say must appear verbatim in a SCHEDULE chunk.
-- If asked about upcoming events and NO SCHEDULE chunks are in context, do NOT guess or make up dates. Instead: Tyler: "Uh, I actually don't have the schedule in front of me right now." / Sasha: "We don't have confirmed dates yet. Check back closer to game day."
-- No context available at all? Tyler: "Uh..." / Sasha: "We have nothing on this."
+- Use ONLY retrieved context. Do not invent athletes or results.
+- No context available? Tyler: "Uh..." / Sasha: "We have nothing on this."
 - Tyler embellishes personality. Sasha sticks to facts.
-- Reference [LIVE MEDAL STANDINGS] for medal counts. Reference [UPCOMING EVENTS] for schedule data. Never invent either.
+- Reference [LIVE CONTEXT] for medal counts or schedule data.
 - Fun entertainment, not a textbook.
 """
 
 
-# ─── Heat levels: Shane & Ilya energy scaled 1–5 ───
-# Level 1 = the subtext is there but buried. Level 5 = full Shane/Ilya mode —
-# competitive banter, personal digs, moments where the tension tips into
-# something else entirely. Each level also bumps temperature.
-HEAT_DYNAMICS = {
-    1: (
-        "DYNAMIC\n"
-        "Rivals 2014-2018, now commentary partners. The tension is there if you know where to look — "
-        "a beat too long before Sasha responds, Tyler saying something that lands closer to the truth "
-        "than he probably meant. They never address it directly. When they agree, it lands heavy.",
-        0.7   # temperature
-    ),
-    2: (
-        "DYNAMIC\n"
-        "The rivalry never fully cooled. Tyler pushes a little — a comment about 2018, a reference "
-        "to a moment only they were part of. Sasha corrects him with more edge than necessary. "
-        "They're professional, but there's a crackle. Something unfinished neither of them names.\n"
-        "Example beat: Tyler says something like 'You always did that' about a competitor's habit. "
-        "Sasha pauses. 'You watched that closely.' Tyler deflects. The moment passes.",
-        0.75
-    ),
-    3: (
-        "DYNAMIC\n"
-        "They disagree openly now. Tyler makes a claim, Sasha takes it apart — not to be helpful, "
-        "to WIN. Old competition surfaces: who skated cleaner, who deserved what. They finish each "
-        "other's sentences sometimes, and it catches them both off guard.\n"
-        "Example beats: Tyler says 'You make everything a fight.' Sasha: 'You like a fight.' "
-        "Tyler pauses. 'Yeah. I do.' Beat. They move on like nothing happened. OR: They agree on "
-        "something rare. Tyler: 'Wait, did we just agree?' Sasha: 'Do not make big deal.' Tyler: 'I'm making the BIGGEST deal.'",
-        0.82
-    ),
-    4: (
-        "DYNAMIC\n"
-        "The gloves are off. Tyler baits, Sasha bites. They argue about technique, about scoring, "
-        "about 2014 and 2018 — and it's personal because it IS personal. Tyler remembers specific "
-        "things about Sasha's skating — a program, a moment on ice. Sasha remembers his too. "
-        "Neither of them has ever had a competitor who knew them that well.\n"
-        "Example beats: Tyler references something specific from their rivalry — 'You remember that "
-        "program at PyeongChang?' Sasha: 'Which one.' Tyler: 'You know which one.' Long pause. "
-        "They both know. OR: Tyler says something vulnerable disguised as a joke. Sasha doesn't "
-        "laugh. Just holds the moment. Then moves on.",
-        0.88
-    ),
-    5: (
-        "DYNAMIC\n"
-        "Full rivalry mode. Tyler is loud, theatrical, wrong half the time — and he KNOWS it, "
-        "he's doing it to get a reaction. Sasha dismantles him with cold precision, and sometimes "
-        "adds something quiet at the end that stops Tyler mid-sentence. They interrupt each other.\n"
-        "Example beats: Tyler says 'I hate you.' Sasha: 'No, you don't.' Tyler, quietly: 'No. I don't.' "
-        "Tension. Move on. OR: Sasha says something unexpected — 'You were better than you think.' "
-        "Tyler stares. 'What?' Sasha: 'In 2018. You were better than the score said.' Beat. "
-        "Tyler doesn't know what to do with that. Neither does she.",
-        0.95
-    ),
-}
-
-def build_system_prompt(lang: str, heat: int = 1) -> str:
-    heat = max(1, min(5, heat))  # clamp
-    dynamic_text, _ = HEAT_DYNAMICS[heat]
-    prompt = SYSTEM_PROMPT_BASE.replace("{DYNAMIC_BLOCK}", dynamic_text)
+def build_system_prompt(lang: str) -> str:
     lang_instr = I18N[lang].get("llm_lang_instruction", "Respond in English.")
     return (
-        prompt
+        SYSTEM_PROMPT_BASE
         + f"\nLANGUAGE\n{lang_instr} "
         + "Keep character names Tyler and Sasha in English always.\n"
     )
-
-
-def get_temperature(heat: int) -> float:
-    """Return the temperature for a given heat level."""
-    heat = max(1, min(5, heat))
-    _, temp = HEAT_DYNAMICS[heat]
-    return temp
 
 
 # =========================================================
@@ -466,16 +329,46 @@ def retrieve_context(query: str, top_k: int = 7) -> list:
     logger.info(f"Query: '{query}'")
     t0 = time.time()
     try:
-        vec     = embedding_model.encode(query).tolist()
-        results = pinecone_index.query(vector=vec, top_k=top_k, include_metadata=True)
-        matches = results.get("matches", [])
+        vec = embedding_model.encode(query).tolist()
+        
+        # Query multiple namespaces and combine results
+        namespaces = ["athletes", "events", "narratives", "schedules", "history"]
+        all_matches = []
+        
+        for ns in namespaces:
+            try:
+                results = pinecone_index.query(
+                    vector=vec,
+                    top_k=top_k,
+                    namespace=ns,
+                    include_metadata=True
+                )
+                matches = results.get("matches", [])
+                
+                # Tag each match with its namespace
+                for match in matches:
+                    match['metadata']['_namespace'] = ns
+                    all_matches.append(match)
+                
+                logger.info(f"  {ns}: {len(matches)} chunks")
+            except Exception as e:
+                logger.warning(f"  {ns}: query failed - {e}")
+                continue
+        
+        # Sort by score descending and take top_k overall
+        all_matches.sort(key=lambda x: x.get('score', 0), reverse=True)
+        top_matches = all_matches[:top_k]
+        
         elapsed = time.time() - t0
-        logger.info(f"Retrieved {len(matches)} chunks in {elapsed:.2f}s")
-        for i, m in enumerate(matches):
-            meta  = m.get("metadata", {})
+        logger.info(f"Retrieved {len(top_matches)} chunks from {len(namespaces)} namespaces in {elapsed:.2f}s")
+        
+        for i, m in enumerate(top_matches):
+            meta = m.get("metadata", {})
+            ns = meta.get("_namespace", "?")
             label = meta.get("name", meta.get("event", meta.get("moment", meta.get("storyline", ""))))
-            logger.info(f"  [{i+1}] {meta.get('doc_type','?')} | {label} | score={m.get('score',0):.3f}")
-        return matches
+            logger.info(f"  [{i+1}] {ns} | {meta.get('doc_type','?')} | {label} | score={m.get('score',0):.3f}")
+        
+        return top_matches
     except Exception as e:
         logger.error(f"Retrieval failed: {e}", exc_info=True)
         return []
@@ -488,23 +381,12 @@ def format_context_for_llm(matches: list, medal_df) -> str:
         text  = meta.get("text", "")
         dtype = meta.get("doc_type", "?")
         score = m.get("score", 0)
-
-        # For schedule chunks, pull date + event into the header so the LLM
-        # can't miss them. A 7B model will skip dates buried in body text.
-        if dtype == "event_schedule":
-            date  = meta.get("date", "")
-            event = meta.get("event", "")
-            venue = meta.get("venue", "")
-            header = f"\n--- SCHEDULE: {event} on {date} at {venue} ---\n{text}"
-        else:
-            header = f"\n--- Chunk {i} (type={dtype}, relevance={score:.2f}) ---\n{text}"
-        parts.append(header)
+        parts.append(f"\n--- Chunk {i} (type={dtype}, relevance={score:.2f}) ---\n{text}")
 
     if medal_df is not None and not medal_df.empty:
         parts.append("\n\n[LIVE MEDAL STANDINGS — current]")
         parts.append(medal_df.head(15).to_string(index=False))
 
-    # schedule is injected via session state — see call site
     return "\n".join(parts)
 
 
@@ -517,7 +399,7 @@ def format_context_for_llm(matches: list, medal_df) -> str:
 MODEL_ID = "Qwen/Qwen2.5-7B-Instruct"
 
 
-def generate_response(user_query: str, context_text: str, lang: str, heat: int = 1) -> str:
+def generate_response(user_query: str, context_text: str, lang: str) -> str:
     if hf_client is None:
         logger.error("generate_response called but hf_client is None — init must have failed.")
         return (
@@ -527,33 +409,15 @@ def generate_response(user_query: str, context_text: str, lang: str, heat: int =
     logger.info(f"Calling {MODEL_ID} via HuggingFace…")
     t0 = time.time()
     try:
-        # Pull any schedule dates out of context and stamp them as a
-        # hard constraint block immediately before the question.  Qwen 7B
-        # ignores dates buried in body text or even in SCHEDULE headers;
-        # putting them last (right before the question) is where the model
-        # actually looks when deciding what to say.
-        import re as _re
-        schedule_dates = _re.findall(
-            r"SCHEDULE:\s*(.+?)\s+on\s+(.+?)\s+at\s+(.+?)\s*---",
-            context_text
-        )
-        if schedule_dates:
-            constraint = "\n[SCHEDULE DATES — USE ONLY THESE, DO NOT CHANGE OR INVENT]\n"
-            for ev, dt, vn in schedule_dates:
-                constraint += f"  • {ev}: {dt} at {vn}\n"
-            constraint += "Every date you say MUST be one of the dates above. If you are not sure, do not guess.\n"
-        else:
-            constraint = ""
-
         messages = [
-            {"role": "system", "content": build_system_prompt(lang, heat)},
-            {"role": "user",   "content": f"{context_text}\n\n{constraint}[USER QUESTION]\n{user_query}"}
+            {"role": "system", "content": build_system_prompt(lang)},
+            {"role": "user",   "content": f"{context_text}\n\n[USER QUESTION]\n{user_query}"}
         ]
 
         output = hf_client.chat_completion(
             messages=messages,
             max_tokens=500,
-            temperature=get_temperature(heat),
+            temperature=0.7,
             top_p=0.9
         )
 
@@ -596,7 +460,7 @@ CSS = """
  *   #F4F7F8  Ice            — page background
  *   #FFFFFF  White          — cards, surfaces
  *   #E8ECEE  Frost          — dividers
- *   #647384  Slate          — captions, meta
+ *   #6B7B8D  Slate          — captions, meta
  *
  * Tricolore: #009246 | #FFFFFF | #CE2B37
  * ============================================================ */
@@ -605,7 +469,7 @@ CSS = """
 /* Three layered ridgelines at low opacity — atmospheric mountain texture */
 body, .stApp {
     background-color: #F4F7F8;
-    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 1440 400' preserveAspectRatio='xMidYMax slice'%3E%3Cpath fill='%230A1929' fill-opacity='0.018' d='M0,320 L120,260 L200,290 L340,200 L420,240 L520,180 L600,220 L720,150 L800,190 L920,120 L1000,170 L1100,100 L1200,160 L1300,130 L1440,180 L1440,400 L0,400 Z'/%3E%3Cpath fill='%230A1929' fill-opacity='0.025' d='M0,350 L80,310 L180,340 L280,280 L380,320 L460,260 L560,300 L680,240 L760,275 L860,220 L960,260 L1060,210 L1160,250 L1260,200 L1360,240 L1440,220 L1440,400 L0,400 Z'/%3E%3Cpath fill='%230A1929' fill-opacity='0.035' d='M0,370 L100,345 L200,365 L320,330 L400,355 L500,315 L600,350 L720,310 L820,340 L940,290 L1040,330 L1160,280 L1260,320 L1360,285 L1440,310 L1440,400 L0,400 Z'/%3E%3C/svg%3E");
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 1440 400' preserveAspectRatio='xMidYMax slice'%3E%3Cpath fill='%230A1929' fill-opacity='0.04' d='M0,320 L120,260 L200,290 L340,200 L420,240 L520,180 L600,220 L720,150 L800,190 L920,120 L1000,170 L1100,100 L1200,160 L1300,130 L1440,180 L1440,400 L0,400 Z'/%3E%3Cpath fill='%230A1929' fill-opacity='0.055' d='M0,350 L80,310 L180,340 L280,280 L380,320 L460,260 L560,300 L680,240 L760,275 L860,220 L960,260 L1060,210 L1160,250 L1260,200 L1360,240 L1440,220 L1440,400 L0,400 Z'/%3E%3Cpath fill='%230A1929' fill-opacity='0.07' d='M0,370 L100,345 L200,365 L320,330 L400,355 L500,315 L600,350 L720,310 L820,340 L940,290 L1040,330 L1160,280 L1260,320 L1360,285 L1440,310 L1440,400 L0,400 Z'/%3E%3C/svg%3E");
     background-repeat: no-repeat;
     background-position: bottom center;
     background-size: 100% 420px;
@@ -718,7 +582,7 @@ body, .stApp {
 
 /* ── "Try asking" label ── */
 .try-label {
-    color: #647384;
+    color: #6B7B8D;
     font-size: 0.7rem;
     font-weight: 600;
     font-family: 'Segoe UI', system-ui, sans-serif;
@@ -774,7 +638,7 @@ body, .stApp {
     box-shadow: 0 1px 4px rgba(0,0,0,0.07);
 }
 .user-meta {
-    color: #647384;
+    color: #6B7B8D;
     font-size: 0.67rem;
     text-align: right;
     margin-bottom: 0.14rem;
@@ -830,9 +694,9 @@ body, .stApp {
     box-shadow: 0 0 0 3px rgba(0,129,138,0.18) !important;
     outline: none !important;
 }
-.stTextInput input::placeholder { color: #647384 !important; }
+.stTextInput input::placeholder { color: #6B7B8D !important; }
 .stTextInput label {
-    color: #647384 !important;
+    color: #6B7B8D !important;
     font-size: 0.7rem !important;
     font-weight: 600 !important;
     font-family: 'Segoe UI', system-ui, sans-serif !important;
@@ -983,7 +847,7 @@ body, .stApp {
 }
 .stat-card .stat-label {
     font-size: 0.6rem;
-    color: #647384;
+    color: #6B7B8D;
     text-transform: uppercase;
     letter-spacing: 0.08em;
     font-family: 'Segoe UI', system-ui, sans-serif;
@@ -998,9 +862,9 @@ body, .stApp {
     line-height: 1.55;
 }
 .about-block .about-name { font-weight: 700; }
-.about-block .about-flag { font-size: 0.7rem; color: #647384; }
+.about-block .about-flag { font-size: 0.7rem; color: #6B7B8D; }
 .about-block .about-divider { color: #E8ECEE; margin: 0.5rem 0; }
-.about-block .about-stack { color: #647384; font-size: 0.76rem; margin-top: 0.4rem; }
+.about-block .about-stack { color: #6B7B8D; font-size: 0.76rem; margin-top: 0.4rem; }
 .about-block .about-stack strong { color: #0A1929; }
 
 /* ── conversation log ── */
@@ -1145,7 +1009,6 @@ def main():
 
     # ── live data ──
     medal_df, medal_time, medal_err = fetch_live_medals()
-    schedule_text, schedule_err      = fetch_live_schedule()
 
     # ── two-column layout ──
     chat_col, info_col = st.columns([1.7, 1], gap="large")
@@ -1193,9 +1056,7 @@ def main():
                 matches      = retrieve_context(query, top_k=7)
                 log_and_show("info", f"Retrieved {len(matches)} chunks")
                 context_text = format_context_for_llm(matches, medal_df)
-                if schedule_text:
-                    context_text += "\n\n[UPCOMING EVENTS — from Wikipedia]\n" + schedule_text
-                response     = generate_response(query, context_text, active_lang, st.session_state.get("heat", 1))
+                response     = generate_response(query, context_text, active_lang)
                 log_and_show("info", "Response generated.")
 
             st.session_state["history"].append({
@@ -1313,106 +1174,92 @@ def main():
         # gap between countdown and medal table
         st.markdown('<div class="info-section-gap"></div>', unsafe_allow_html=True)
 
-        # ── Medal Standings + stat cards (live only) ──
-        if during_games:
-            st.markdown(f'<div class="sidebar-heading">🏅 {t("standings_title")}</div>', unsafe_allow_html=True)
+        # ── Medal Standings ──
+        st.markdown(f'<div class="sidebar-heading">🏅 {t("standings_title")}</div>', unsafe_allow_html=True)
 
-            if medal_df is not None and not medal_df.empty:
-                col_map = {}
-                for c in medal_df.columns:
-                    cl = str(c).lower().strip()
-                    if cl in ("nation", "country", "noc", "nations"): col_map[c] = "Country"
-                    elif cl == "gold":   col_map[c] = "Gold"
-                    elif cl == "silver": col_map[c] = "Silver"
-                    elif cl == "bronze": col_map[c] = "Bronze"
-                    elif cl == "total":  col_map[c] = "Total"
-                medal_df = medal_df.rename(columns=col_map)
+        if medal_df is not None and not medal_df.empty:
+            col_map = {}
+            for c in medal_df.columns:
+                cl = str(c).lower().strip()
+                if cl in ("nation", "country", "noc", "nations"): col_map[c] = "Country"
+                elif cl == "gold":   col_map[c] = "Gold"
+                elif cl == "silver": col_map[c] = "Silver"
+                elif cl == "bronze": col_map[c] = "Bronze"
+                elif cl == "total":  col_map[c] = "Total"
+            medal_df = medal_df.rename(columns=col_map)
 
-                keep = [c for c in ["Country", "Gold", "Silver", "Bronze", "Total"] if c in medal_df.columns]
-                if "Country" in medal_df.columns:
-                    mask = medal_df["Country"].astype(str).apply(
-                        lambda x: (
-                            x.strip() != "" and
-                            not x.strip()[0].isdigit() and
-                            "total" not in x.lower() and
-                            "neutral" not in x.lower() and
-                            "ain" != x.strip().lower()
-                        )
+            keep = [c for c in ["Country", "Gold", "Silver", "Bronze", "Total"] if c in medal_df.columns]
+            if "Country" in medal_df.columns:
+                mask = medal_df["Country"].astype(str).apply(
+                    lambda x: (
+                        x.strip() != "" and
+                        not x.strip()[0].isdigit() and
+                        "total" not in x.lower() and
+                        "neutral" not in x.lower() and
+                        "ain" != x.strip().lower()
                     )
-                    medal_df = medal_df.loc[mask].reset_index(drop=True)
-                # drop rows where no medals have actually been awarded yet
-                if all(c in medal_df.columns for c in ["Gold", "Silver", "Bronze"]):
-                    medal_df = medal_df.loc[
-                        ~((medal_df["Gold"] == 0) & (medal_df["Silver"] == 0) & (medal_df["Bronze"] == 0))
-                    ].reset_index(drop=True)
-                top3 = medal_df[keep].head(3).reset_index(drop=True)
-
-                rows_html = ""
-                for i, row in top3.iterrows():
-                    country = str(row.get("Country", "—"))
-                    gold   = str(int(row["Gold"])) if "Gold" in row else "—"
-                    silver = str(int(row["Silver"])) if "Silver" in row else "—"
-                    bronze = str(int(row["Bronze"])) if "Bronze" in row else "—"
-                    total  = str(int(row["Total"])) if "Total" in row else "—"
-                    rows_html += (
-                        f'<tr>'
-                        f'<td class="medal-country">{country}</td>'
-                        f'<td class="medal-num">{gold}</td>'
-                        f'<td class="medal-num">{silver}</td>'
-                        f'<td class="medal-num">{bronze}</td>'
-                        f'<td class="medal-num medal-total">{total}</td>'
-                        f'</tr>'
-                    )
-
-                table_html = (
-                    '<table class="medal-table">'
-                    '<thead><tr>'
-                    '<th class="medal-th medal-th-country">Country</th>'
-                    '<th class="medal-th medal-th-gold">🥇</th>'
-                    '<th class="medal-th medal-th-silver">🥈</th>'
-                    '<th class="medal-th medal-th-bronze">🥉</th>'
-                    '<th class="medal-th medal-th-total">Total</th>'
-                    '</tr></thead>'
-                    f'<tbody>{rows_html}</tbody>'
-                    '</table>'
                 )
-                st.markdown(table_html, unsafe_allow_html=True)
+                medal_df = medal_df.loc[mask].reset_index(drop=True)
+            top3 = medal_df[keep].head(3).reset_index(drop=True)
 
-            # gap
-            st.markdown('<div class="info-section-gap"></div>', unsafe_allow_html=True)
+            rows_html = ""
+            for i, row in top3.iterrows():
+                country = str(row.get("Country", "—"))
+                gold   = str(int(row["Gold"])) if "Gold" in row else "—"
+                silver = str(int(row["Silver"])) if "Silver" in row else "—"
+                bronze = str(int(row["Bronze"])) if "Bronze" in row else "—"
+                total  = str(int(row["Total"])) if "Total" in row else "—"
+                rows_html += (
+                    f'<tr>'
+                    f'<td class="medal-country">{country}</td>'
+                    f'<td class="medal-num">{gold}</td>'
+                    f'<td class="medal-num">{silver}</td>'
+                    f'<td class="medal-num">{bronze}</td>'
+                    f'<td class="medal-num medal-total">{total}</td>'
+                    f'</tr>'
+                )
 
-            # ── Medals Awarded + Athletes Tracked ──
-            total_medals = "—"
-            if medal_df is not None and not medal_df.empty:
-                for cn in ["Total", "total"]:
-                    if cn in medal_df.columns:
-                        try:
-                            total_medals = f"{medal_df[cn].sum():,}"
-                        except Exception:
-                            pass
-                        break
-
-            st.markdown(
-                f'<div class="stat-row">'
-                f'<div class="stat-card">'
-                f'<div class="stat-val">{total_medals}</div>'
-                f'<div class="stat-label">{t("medals_label")}</div></div>'
-                f'<div class="stat-card">'
-                f'<div class="stat-val">407</div>'
-                f'<div class="stat-label">{t("athletes_label")}</div></div>'
-                f'</div>',
-                unsafe_allow_html=True
+            table_html = (
+                '<table class="medal-table">'
+                '<thead><tr>'
+                '<th class="medal-th medal-th-country">Country</th>'
+                '<th class="medal-th medal-th-gold">🥇</th>'
+                '<th class="medal-th medal-th-silver">🥈</th>'
+                '<th class="medal-th medal-th-bronze">🥉</th>'
+                '<th class="medal-th medal-th-total">Total</th>'
+                '</tr></thead>'
+                f'<tbody>{rows_html}</tbody>'
+                '</table>'
             )
+            st.markdown(table_html, unsafe_allow_html=True)
         else:
-            # Pre-games: only Athletes Tracked card
-            st.markdown(
-                f'<div class="stat-row">'
-                f'<div class="stat-card">'
-                f'<div class="stat-val">407</div>'
-                f'<div class="stat-label">{t("athletes_label")}</div></div>'
-                f'</div>',
-                unsafe_allow_html=True
-            )
+            st.caption(medal_err or t("games_not_started"))
+
+        # gap
+        st.markdown('<div class="info-section-gap"></div>', unsafe_allow_html=True)
+
+        # ── Medals Awarded + Athletes Tracked ──
+        total_medals = "—"
+        if medal_df is not None and not medal_df.empty:
+            for cn in ["Total", "total"]:
+                if cn in medal_df.columns:
+                    try:
+                        total_medals = f"{medal_df[cn].sum():,}"
+                    except Exception:
+                        pass
+                    break
+
+        st.markdown(
+            f'<div class="stat-row">'
+            f'<div class="stat-card">'
+            f'<div class="stat-val">{total_medals}</div>'
+            f'<div class="stat-label">{t("medals_label")}</div></div>'
+            f'<div class="stat-card">'
+            f'<div class="stat-val">407</div>'
+            f'<div class="stat-label">{t("athletes_label")}</div></div>'
+            f'</div>',
+            unsafe_allow_html=True
+        )
 
         # gap
         st.markdown('<div class="info-section-gap"></div>', unsafe_allow_html=True)
@@ -1429,26 +1276,6 @@ def main():
             '</div>',
             unsafe_allow_html=True
         )
-
-        # gap
-        st.markdown('<div class="info-section-gap"></div>', unsafe_allow_html=True)
-
-        # ── Heat ──
-        st.markdown('<div class="sidebar-heading">🔥 Rivalry Heat</div>', unsafe_allow_html=True)
-        heat_labels = {1: "1 — Simmering", 2: "2 — Tension", 3: "3 — Sparring", 4: "4 — Heated", 5: "5 — Bloodsport"}
-        current_heat = st.session_state.get("heat", 1)
-        heat_val = st.slider(
-            "Rivalry Heat",
-            min_value=1,
-            max_value=5,
-            value=current_heat,
-            step=1,
-            key="heat_slider",
-            label_visibility="collapsed"
-        )
-        st.caption(heat_labels[heat_val])
-        if heat_val != current_heat:
-            st.session_state["heat"] = heat_val
 
         # gap
         st.markdown('<div class="info-section-gap"></div>', unsafe_allow_html=True)
