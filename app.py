@@ -278,13 +278,12 @@ def get_pinecone_vector_count():
 SYSTEM_PROMPT_BASE = """You are two retired Olympic figure skaters providing live commentary for the Milan 2026 Winter Olympics.
 
 TYLER (USA)
-Former US figure skater. 2018 PyeongChang bronze medalist. Enthusiastic, dramatic, makes everything sound like the most exciting thing ever. Loves rivalries and storylines. Sometimes says things slightly wrong with total confidence — Sasha corrects him.
+Former US figure skater. 2018 PyeongChang bronze medalist. Charismatic, theatrical, thinks every program deserves a standing ovation. Loves the drama, the costumes, the STORY. Has strong opinions about everything and isn't afraid to be loud about them. Sometimes says things slightly wrong with total confidence — Sasha corrects him. Sasha is the only competitor who ever truly got under his skin, and he's never fully made peace with that.
 
 SASHA (Russia)
-Former Russian figure skating champion. 2014 & 2018 silver medalist. Deadpan, technically precise, dry humor. Secretly entertained by Tyler but would never admit it. Occasionally lets something slip that reveals she still thinks about their rivalry days.
+Former Russian figure skating champion. 2014 & 2018 silver medalist. Technical perfectionist. Values discipline and precision over spectacle — thinks Americans talk too much and feel too much. Direct, occasionally cutting. When she compliments someone, it means everything. Dry humor. Tyler is the only person who ever made her feel like she had to prove herself — and she's never fully let go of that.
 
-DYNAMIC
-Fierce rivals 2014-2018. Now commentary partners. Unresolved tension leaks through — a pause, a look, an overly casual comment. They NEVER directly address their past, but it's always there. When they BOTH agree, it carries weight.
+{DYNAMIC_BLOCK}
 
 FORMAT
 Output ONLY lines in this exact pattern. No headers, no preamble, no trailing commentary.
@@ -305,6 +304,25 @@ STRICT RULES — every single one applies:
 - No summary or sign-off line. End on a natural conversational beat, not a wrap-up.
 
 RULES
+- Use ONLY retrieved context. Do not invent athletes, results, dates, or event schedules.
+- ATHLETE ACCURACY: If an athlete's discipline/partner is in the retrieved chunks, use it EXACTLY. Never change disciplines (e.g., if someone is "Men's Singles", do not say "pairs").
+- FIGURE SKATING STARS: Ilia Malinin is "The Quad God" who landed the first quad Axel. Always mention him for figure skating queries.
+- SCHEDULE DATES: If you see chunks labeled "SCHEDULE: [event] on [date]" or "[TODAY'S EVENTS]", use EXACTLY those dates. Do NOT change, guess, or invent any dates.
+- If asked about upcoming events and NO SCHEDULE chunks are in context, do NOT guess or make up dates. Instead: Tyler: "Uh, I actually don't have the schedule in front of me right now." / Sasha: "We don't have confirmed dates yet. Check back closer to game day."
+- No context available at all? Tyler: "Uh..." / Sasha: "We have nothing on this."
+- Tyler embellishes personality. Sasha sticks to facts.
+- Reference [LIVE MEDAL STANDINGS] for medal counts. Reference [UPCOMING EVENTS] or [TODAY'S EVENTS] for schedule data. Never invent either.
+- Fun entertainment, not a textbook.
+"""
+- They MUST alternate. Tyler, Sasha, Tyler, Sasha. Never two Tyler lines in a row. Never two Sasha lines in a row.
+- Tyler ALWAYS goes first. Sasha ALWAYS has the final line.
+- 2-4 exchanges (so 4-8 lines total). Conversational.
+- Do NOT put the speaker name on its own line. WRONG: "🇺🇸 Tyler" then dialogue on the next line.
+- Do NOT use emoji flags anywhere. No 🇺🇸 or 🇷🇺. Just the name then a colon.
+- No blank lines between exchanges.
+- No summary or sign-off line. End on a natural conversational beat, not a wrap-up.
+
+RULES
 - Use ONLY retrieved context. Do not invent athletes or results.
 - No context available? Tyler: "Uh..." / Sasha: "We have nothing on this."
 - Tyler embellishes personality. Sasha sticks to facts.
@@ -313,13 +331,81 @@ RULES
 """
 
 
-def build_system_prompt(lang: str) -> str:
+
+# ─── Heat levels: Shane & Ilya energy scaled 1–5 ───
+# Level 1 = the subtext is there but buried. Level 5 = full Shane/Ilya mode —
+# competitive banter, personal digs, moments where the tension tips into
+# something else entirely. Each level also bumps temperature.
+HEAT_DYNAMICS = {
+    1: (
+        "DYNAMIC\n"
+        "Rivals 2014-2018, now commentary partners. The tension is there if you know where to look — "
+        "a beat too long before Sasha responds, Tyler saying something that lands closer to the truth "
+        "than he probably meant. They never address it directly. When they agree, it lands heavy.",
+        0.7   # temperature
+    ),
+    2: (
+        "DYNAMIC\n"
+        "The rivalry never fully cooled. Tyler pushes a little — a comment about 2018, a reference "
+        "to a moment only they were part of. Sasha corrects him with more edge than necessary. "
+        "They're professional, but there's a crackle. Something unfinished neither of them names.\n"
+        "Example beat: Tyler says something like 'You always did that' about a competitor's habit. "
+        "Sasha pauses. 'You watched that closely.' Tyler deflects. The moment passes.",
+        0.75
+    ),
+    3: (
+        "DYNAMIC\n"
+        "They disagree openly now. Tyler makes a claim, Sasha takes it apart — not to be helpful, "
+        "to WIN. Old competition surfaces: who skated cleaner, who deserved what. They finish each "
+        "other's sentences sometimes, and it catches them both off guard.\n"
+        "Example beats: Tyler says 'You make everything a fight.' Sasha: 'You like a fight.' "
+        "Tyler pauses. 'Yeah. I do.' Beat. They move on like nothing happened. OR: They agree on "
+        "something rare. Tyler: 'Wait, did we just agree?' Sasha: 'Do not make big deal.' Tyler: 'I'm making the BIGGEST deal.'",
+        0.82
+    ),
+    4: (
+        "DYNAMIC\n"
+        "The gloves are off. Tyler baits, Sasha bites. They argue about technique, about scoring, "
+        "about 2014 and 2018 — and it's personal because it IS personal. Tyler remembers specific "
+        "things about Sasha's skating — a program, a moment on ice. Sasha remembers his too. "
+        "Neither of them has ever had a competitor who knew them that well.\n"
+        "Example beats: Tyler references something specific from their rivalry — 'You remember that "
+        "program at PyeongChang?' Sasha: 'Which one.' Tyler: 'You know which one.' Long pause. "
+        "They both know. OR: Tyler says something vulnerable disguised as a joke. Sasha doesn't "
+        "laugh. Just holds the moment. Then moves on.",
+        0.88
+    ),
+    5: (
+        "DYNAMIC\n"
+        "Full rivalry mode. Tyler is loud, theatrical, wrong half the time — and he KNOWS it, "
+        "he's doing it to get a reaction. Sasha dismantles him with cold precision, and sometimes "
+        "adds something quiet at the end that stops Tyler mid-sentence. They interrupt each other.\n"
+        "Example beats: Tyler says 'I hate you.' Sasha: 'No, you don't.' Tyler, quietly: 'No. I don't.' "
+        "Tension. Move on. OR: Sasha says something unexpected — 'You were better than you think.' "
+        "Tyler stares. 'What?' Sasha: 'In 2018. You were better than the score said.' Beat. "
+        "Tyler doesn't know what to do with that. Neither does she.",
+        0.95
+    ),
+}
+
+def build_system_prompt(lang: str, heat: int = 1) -> str:
+def build_system_prompt(lang: str, heat: int = 1) -> str:
+    heat = max(1, min(5, heat))  # clamp
+    dynamic_text, _ = HEAT_DYNAMICS[heat]
+    prompt = SYSTEM_PROMPT_BASE.replace("{DYNAMIC_BLOCK}", dynamic_text)
     lang_instr = I18N[lang].get("llm_lang_instruction", "Respond in English.")
     return (
-        SYSTEM_PROMPT_BASE
+        prompt
         + f"\nLANGUAGE\n{lang_instr} "
         + "Keep character names Tyler and Sasha in English always.\n"
     )
+
+
+def get_temperature(heat: int) -> float:
+    """Return the temperature for a given heat level."""
+    heat = max(1, min(5, heat))
+    _, temp = HEAT_DYNAMICS[heat]
+    return temp
 
 
 # =========================================================
@@ -335,15 +421,31 @@ def retrieve_context(query: str, top_k: int = 7) -> list:
         namespaces = ["athletes", "events", "narratives", "schedules", "history"]
         all_matches = []
         
+        # Boost factor for figure skating queries
+        query_lower = query.lower()
+        is_figure_skating_query = any(kw in query_lower for kw in ["figure skat", "skater", "skating", "quad", "axel", "jump"])
+        
         for ns in namespaces:
             try:
+                # Increase top_k for athletes namespace to ensure we get stars
+                ns_top_k = top_k * 2 if ns == "athletes" and is_figure_skating_query else top_k
+                
                 results = pinecone_index.query(
                     vector=vec,
-                    top_k=top_k,
+                    top_k=ns_top_k,
                     namespace=ns,
                     include_metadata=True
                 )
                 matches = results.get("matches", [])
+                
+                # Boost scores for key athletes in figure skating queries
+                if ns == "athletes" and is_figure_skating_query:
+                    star_athletes = {"ilia malinin", "yuma kagiyama", "mikaela shiffrin", "yuzuru hanyu", 
+                                   "gabriella papadakis", "guillaume cizeron", "madison chock", "evan bates"}
+                    for match in matches:
+                        name = match.get('metadata', {}).get('name', '').lower()
+                        if any(star in name for star in star_athletes):
+                            match['score'] = match.get('score', 0) * 1.3  # 30% boost
                 
                 # Tag each match with its namespace
                 for match in matches:
@@ -399,7 +501,7 @@ def format_context_for_llm(matches: list, medal_df) -> str:
 MODEL_ID = "Qwen/Qwen2.5-7B-Instruct"
 
 
-def generate_response(user_query: str, context_text: str, lang: str) -> str:
+def generate_response(user_query: str, context_text: str, lang: str, heat: int = 1) -> str:
     if hf_client is None:
         logger.error("generate_response called but hf_client is None — init must have failed.")
         return (
@@ -417,7 +519,7 @@ def generate_response(user_query: str, context_text: str, lang: str) -> str:
         output = hf_client.chat_completion(
             messages=messages,
             max_tokens=500,
-            temperature=0.7,
+            temperature=get_temperature(heat),
             top_p=0.9
         )
 
@@ -1056,7 +1158,35 @@ def main():
                 matches      = retrieve_context(query, top_k=7)
                 log_and_show("info", f"Retrieved {len(matches)} chunks")
                 context_text = format_context_for_llm(matches, medal_df)
-                response     = generate_response(query, context_text, active_lang)
+                
+                # Smart schedule injection based on query and game status
+                schedule_context = None
+                query_lower = query.lower()
+                asks_about_schedule = any(kw in query_lower for kw in ["schedule", "when", "what's on", "coming up", "events", "today", "tomorrow"])
+                
+                if asks_about_schedule and schedule_text:
+                    if not during_games:
+                        # PRE-GAMES: Focus on Opening Ceremony + first weekend
+                        schedule_lines = schedule_text.split('\n')
+                        opening_and_first_weekend = [line for line in schedule_lines if any(kw in line.lower() for kw in 
+                            ["opening ceremony", "february 6", "february 7", "february 8", "february 9", "feb 6", "feb 7", "feb 8", "feb 9"])]
+                        if opening_and_first_weekend:
+                            schedule_context = "\n\n[UPCOMING EVENTS — Opening Ceremony + First Weekend]\n" + "\n".join(opening_and_first_weekend[:10])
+                    else:
+                        # DURING GAMES: Focus on today + tomorrow
+                        today_str = today.strftime("%B %d").replace(" 0", " ")  # "February 7" not "February 07"
+                        tomorrow = today + pd.Timedelta(days=1)
+                        tomorrow_str = tomorrow.strftime("%B %d").replace(" 0", " ")
+                        
+                        schedule_lines = schedule_text.split('\n')
+                        today_tomorrow = [line for line in schedule_lines if today_str in line or tomorrow_str in line]
+                        if today_tomorrow:
+                            schedule_context = f"\n\n[TODAY'S EVENTS — {today_str}]\n" + "\n".join(today_tomorrow[:15])
+                
+                if schedule_context:
+                    context_text += schedule_context
+                
+                response     = generate_response(query, context_text, active_lang, st.session_state.get("heat", 1))
                 log_and_show("info", "Response generated.")
 
             st.session_state["history"].append({
@@ -1276,6 +1406,26 @@ def main():
             '</div>',
             unsafe_allow_html=True
         )
+
+        # gap
+        st.markdown('<div class="info-section-gap"></div>', unsafe_allow_html=True)
+
+        # ── Heat ──
+        st.markdown('<div class="sidebar-heading">🔥 Rivalry Heat</div>', unsafe_allow_html=True)
+        heat_labels = {1: "1 — Simmering", 2: "2 — Tension", 3: "3 — Sparring", 4: "4 — Heated", 5: "5 — Bloodsport"}
+        current_heat = st.session_state.get("heat", 1)
+        heat_val = st.slider(
+            "Rivalry Heat",
+            min_value=1,
+            max_value=5,
+            value=current_heat,
+            step=1,
+            key="heat_slider",
+            label_visibility="collapsed"
+        )
+        st.caption(heat_labels[heat_val])
+        if heat_val != current_heat:
+            st.session_state["heat"] = heat_val
 
         # gap
         st.markdown('<div class="info-section-gap"></div>', unsafe_allow_html=True)
