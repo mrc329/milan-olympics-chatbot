@@ -35,7 +35,7 @@ jobs:
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install pinecone wikipediaapi
+          pip install pinecone-client Wikipedia-API
       
       - name: Run nationality validation
         env:
@@ -175,20 +175,12 @@ jobs:
 #    - You can pause/disable in Actions tab if needed
 #
 # ============================================================================
-# WHAT HAPPENS WHEN IT RUNS
+# PACKAGE NAMES (IMPORTANT)
 # ============================================================================
 #
-# Normal run (no changes):
-#   ✓ Validates all athletes
-#   ✓ Uploads validation log
-#   ✓ Workflow succeeds (green checkmark)
+# Install: pip install Wikipedia-API (with capital W and hyphen)
+# Import:  import wikipediaapi (lowercase, no hyphen)
 #
-# Changes detected:
-#   ✓ Validates all athletes
-#   ⚠️ Finds nationality change (e.g., Danny O'Shea USA → CAN)
-#   ✓ Updates Pinecone automatically
-#   ✓ Uploads validation log with changes
-#   ✓ Creates GitHub issue for review
-#   ✓ Workflow succeeds (but issue created for visibility)
+# This is correct! The PyPI package name and Python import name are different.
 #
 # ============================================================================
