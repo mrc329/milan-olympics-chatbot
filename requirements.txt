@@ -8,6 +8,9 @@ pandas
 huggingface-hub
 streamlit>=1.30.0
 
+pytest
+lxml
+
 # Optional: NLU (entity extraction, better quality scoring)
 # Uncomment to enable advanced NLU features:
 spacy
