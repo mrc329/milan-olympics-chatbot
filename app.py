@@ -1153,17 +1153,9 @@ def render_bubbles(response_text: str):
 def main():
     st.markdown(CSS, unsafe_allow_html=True)
 
-    # -- session init --
-    # Read language from query params if present
-    query_params = st.query_params
-    lang_from_url = query_params.get("lang", ["EN"])[0] if isinstance(query_params.get("lang"), list) else query_params.get("lang", "EN")
-    
+    # ── session init ──
     if "lang" not in st.session_state:
-        st.session_state["lang"] = lang_from_url
-    elif lang_from_url and lang_from_url != st.session_state["lang"]:
-        # URL param overrides session state
-        st.session_state["lang"] = lang_from_url
-        
+        st.session_state["lang"] = "EN"
     if "input_gen" not in st.session_state:
         st.session_state["input_gen"] = 0
     if "history" not in st.session_state:
@@ -1387,53 +1379,25 @@ def main():
         # gap
         st.markdown('<div class="info-section-gap"></div>', unsafe_allow_html=True)
 
-        # ── Language toggle (flag buttons) ──
+        # ── Language toggle ──
         st.markdown('<div class="sidebar-heading">🌍 Language</div>', unsafe_allow_html=True)
-        LANG_DEFS = [
-            ("EN", "🇬🇧", "English"),
-            ("FR", "🇫🇷", "Français"),
-            ("IT", "🇮🇹", "Italiano"),
+        
+        lang_cols = st.columns(3, gap="small")
+        lang_options = [
+            ("EN", "🇬🇧 EN"),
+            ("FR", "🇫🇷 FR"),
+            ("IT", "🇮🇹 IT")
         ]
-        lang_btns_html = '<div class="lang-row">'
-        for code, flag, label in LANG_DEFS:
-            active_cls = " active" if code == active_lang else ""
-            lang_btns_html += (
-                f'<div class="lang-btn{active_cls}" '
-                f'data-lang="{code}">'
-                f'<span class="lang-flag">{flag}</span>'
-                f'<span class="lang-label">{label}</span>'
-                f'</div>'
-            )
-        lang_btns_html += '</div>'
-        st.markdown(lang_btns_html, unsafe_allow_html=True)
-
-        # Language switching - NO visible Streamlit buttons needed
-        # The flag buttons update session state directly via JavaScript
-        st.markdown("""
-        <script>
-        (function() {
-            function wireLangButtons() {
-                var btns = document.querySelectorAll('.lang-btn');
-                if (btns.length === 0) {
-                    setTimeout(wireLangButtons, 150);
-                    return;
-                }
-                
-                btns.forEach(function(btn) {
-                    btn.addEventListener('click', function() {
-                        var lang = btn.getAttribute('data-lang');
-                        
-                        // Force page reload with lang query param
-                        var url = new URL(window.location);
-                        url.searchParams.set('lang', lang);
-                        window.location.href = url.toString();
-                    });
-                });
-            }
-            wireLangButtons();
-        })();
-        </script>
-        """, unsafe_allow_html=True)
+        
+        for col, (code, label) in zip(lang_cols, lang_options):
+            if col.button(
+                label, 
+                key=f"lang_{code}",
+                use_container_width=True,
+                type="primary" if code == active_lang else "secondary"
+            ):
+                st.session_state["lang"] = code
+                st.rerun()
 
         # gap
         st.markdown('<div class="info-section-gap"></div>', unsafe_allow_html=True)
