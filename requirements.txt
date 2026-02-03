@@ -1,16 +1,19 @@
-# Core dependencies
+# Core dependencies for Milano Cortina 2026 Pipeline
 pinecone-client==5.0.0
 sentence-transformers==3.3.1
 requests==2.32.3
+pandas==2.2.3
 
 # Testing
 pytest==8.3.4
 pytest-cov==6.0.0
-
-# Optional: for better test output
 pytest-html==4.1.1
+
+# Streamlit app dependencies
+streamlit==1.39.0
+huggingface-hub==0.26.5
 
 # Optional: NLU (entity extraction, better quality scoring)
 # Uncomment to enable advanced NLU features:
-# spacy==3.7.6
-# Run: python -m spacy download en_core_web_sm
+spacy==3.7.6
+# After installing, run: python -m spacy download en_core_web_sm
