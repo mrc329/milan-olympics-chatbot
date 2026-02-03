@@ -1,9 +1,14 @@
-streamlit>=1.31.0
-sentence-transformers>=2.3.1
-pinecone>=3.0.0
-huggingface_hub>=0.21.0
-pandas>=2.1.0
-requests>=2.31.0
-lxml>=4.9.0
-html5lib>=1.1
-pytest
+# Core dependencies
+pinecone-client==5.0.0
+sentence-transformers==3.3.1
+requests==2.32.3
+
+# Testing
+pytest==8.3.4
+pytest-cov==6.0.0
+
+# Optional: for better test output
+pytest-html==4.1.1
+
+spacy==3.7.6
+Run: python -m spacy download en_core_web_sm
