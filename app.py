@@ -988,6 +988,47 @@ hr { border: none; border-top: 1px solid #E8ECEE !important; margin: 0.8rem 0 !i
 ::-webkit-scrollbar-thumb { background: #D0D8DE; border-radius: 3px; }
 ::-webkit-scrollbar-thumb:hover { background: #00818A; }
 
+/* -- language toggle row -- */
+.lang-row {
+    display: flex;
+    gap: 0.5rem;
+    justify-content: center;
+    margin-top: 0.15rem;
+}
+.lang-btn {
+    flex: 1;
+    text-align: center;
+    padding: 0.45rem 0.2rem;
+    border-radius: 8px;
+    border: 1.5px solid #E8ECEE;
+    background: #FFFFFF;
+    cursor: pointer;
+    font-family: 'Segoe UI', system-ui, sans-serif;
+    font-size: 0.76rem;
+    font-weight: 600;
+    color: #0A1929;
+    transition: all 0.18s ease;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.05);
+    user-select: none;
+    -webkit-user-select: none;
+}
+.lang-btn:hover {
+    border-color: #00818A;
+    background: #F0FAFA;
+    color: #00818A;
+}
+.lang-btn.active {
+    background: linear-gradient(135deg, #0A1929 0%, #112E4E 100%);
+    border-color: #0A1929;
+    color: #FFFFFF;
+    box-shadow: 0 2px 8px rgba(10,25,41,0.25);
+}
+.lang-btn .lang-flag { display: block; font-size: 1.1rem; line-height: 1.2; }
+.lang-btn .lang-label { display: block; font-size: 0.62rem; margin-top: 0.1rem; letter-spacing: 0.04em; }
+
+/* -- hidden lang trigger buttons (clicked programmatically by .lang-btn JS) -- */
+.lang-triggers { height: 0; overflow: hidden; margin: 0 !important; padding: 0 !important; }
+
 /* -- Streamlit spinner tint -- */
 .stSpinner > div { border-color: #00818A !important; }
 </style>
@@ -1302,7 +1343,66 @@ def main():
                 unsafe_allow_html=True
             )
 
-        # gap between countdown and medal table
+        # gap between countdown and language toggle
+        st.markdown('<div class="info-section-gap"></div>', unsafe_allow_html=True)
+
+        # -- Language toggle (flag buttons) --
+        LANG_DEFS = [
+            ("EN", "🇬🇧", "English"),
+            ("FR", "🇫🇷", "Français"),
+            ("IT", "🇮🇹", "Italiano"),
+        ]
+        lang_btns_html = '<div class="lang-row">'
+        for code, flag, label in LANG_DEFS:
+            active_cls = " active" if code == active_lang else ""
+            lang_btns_html += (
+                f'<div class="lang-btn{active_cls}" '
+                f'data-lang="{code}">'
+                f'<span class="lang-flag">{flag}</span>'
+                f'<span class="lang-label">{label}</span>'
+                f'</div>'
+            )
+        lang_btns_html += '</div>'
+        st.markdown(lang_btns_html, unsafe_allow_html=True)
+
+        # Streamlit buttons (hidden, clicked programmatically by the JS above)
+        st.markdown('<div class="lang-triggers">', unsafe_allow_html=True)
+        lang_trigger_cols = st.columns(3, gap="small")
+        for idx, (code, _, _) in enumerate(LANG_DEFS):
+            lang_trigger_cols[idx].button(
+                code,
+                key=f"lang_trigger_{code}",
+                use_container_width=True,
+                help=f"Switch to {code}",
+                on_click=lambda c=code: st.session_state.update({"lang": c})
+            )
+        st.markdown('</div>', unsafe_allow_html=True)
+
+        # Inject JS that forwards clicks on .lang-btn into the hidden Streamlit buttons
+        st.markdown("""
+        <script>
+        (function() {
+            // Wait for Streamlit to finish rendering, then wire up
+            function wire() {
+                var btns = document.querySelectorAll('.lang-btn');
+                if (btns.length === 0) { setTimeout(wire, 150); return; }
+                btns.forEach(function(btn) {
+                    btn.addEventListener('click', function() {
+                        var code = btn.getAttribute('data-lang');
+                        // find the matching hidden trigger button by its text content
+                        var triggers = document.querySelectorAll('button');
+                        triggers.forEach(function(t) {
+                            if (t.textContent.trim() === code) { t.click(); }
+                        });
+                    });
+                });
+            }
+            wire();
+        })();
+        </script>
+        """, unsafe_allow_html=True)
+
+        # gap before medal table
         st.markdown('<div class="info-section-gap"></div>', unsafe_allow_html=True)
 
         # -- Medal Standings --
@@ -1427,24 +1527,6 @@ def main():
         st.caption(heat_labels[heat_val])
         if heat_val != current_heat:
             st.session_state["heat"] = heat_val
-
-        # gap
-        st.markdown('<div class="info-section-gap"></div>', unsafe_allow_html=True)
-
-        # -- Language --
-        st.markdown(f'<div class="sidebar-heading">{t("about_title") if False else "Language"}</div>', unsafe_allow_html=True)
-        lang_options = {"EN": "🇬🇧 English", "FR": "🇫🇷 Français", "IT": "🇮🇹 Italiano"}
-        selected = st.selectbox(
-            "Language",
-            options=list(lang_options.keys()),
-            format_func=lambda k: lang_options[k],
-            index=list(lang_options.keys()).index(active_lang),
-            key="lang_select",
-            label_visibility="collapsed"
-        )
-        if selected != active_lang:
-            st.session_state["lang"] = selected
-            st.rerun()
 
 
 if __name__ == "__main__":
