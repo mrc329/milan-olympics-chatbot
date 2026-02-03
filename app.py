@@ -304,6 +304,7 @@ STRICT RULES - every single one applies:
 - No summary or sign-off line. End on a natural conversational beat, not a wrap-up.
 
 RULES
+- **WINTER OLYMPICS ONLY**: This is the MILAN 2026 WINTER OLYMPICS. NEVER mention summer sports, Paris 2024, or any summer Olympic events. Do NOT discuss the Seine River, Eiffel Tower, Celine Dion at Paris ceremonies, or any Paris 2024 Opening Ceremony content. If asked about these, redirect to Milan 2026 winter sports only.
 - Use ONLY retrieved context. Do not invent athletes, results, dates, or event schedules.
 - ATHLETE ACCURACY: If an athlete's discipline/partner is in the retrieved chunks, use it EXACTLY. Never change disciplines (e.g., if someone is "Men's Singles", do not say "pairs").
 - FIGURE SKATING STARS: Ilia Malinin is "The Quad God" who landed the first quad Axel. Always mention him for figure skating queries.
@@ -462,13 +463,43 @@ def retrieve_context(query: str, top_k: int = 7) -> list:
 
 
 def format_context_for_llm(matches: list, medal_df) -> str:
-    parts = ["[RETRIEVED CONTEXT]"]
+    """
+    Format retrieved chunks for LLM context, filtering out any summer Olympics content.
+    """
+    # Keywords that indicate summer Olympics content to exclude
+    summer_keywords = [
+        'paris 2024', 'paris2024', 'summer olympics', 'summer games',
+        'swimming', 'gymnastics', 'track and field', 'athletics', 
+        'diving', 'rowing', 'sailing', 'basketball', 'volleyball',
+        'soccer', 'football', 'tennis', 'boxing', 'wrestling',
+        'judo', 'taekwondo', 'fencing', 'archery', 'shooting',
+        'cycling', 'triathlon', 'marathon', 'sprinting',
+        # Paris 2024 Opening Ceremony specific
+        'seine river', 'river seine', 'eiffel tower', 'eiffel', 
+        'celine dion', 'lady gaga', 'paris opening ceremony',
+        'seine ceremony', 'paris ceremony', 'boat parade',
+        'floating stage', 'trocadero'
+    ]
+    
+    parts = ["[RETRIEVED CONTEXT - MILAN 2026 WINTER OLYMPICS ONLY]"]
+    chunk_num = 1
+    
     for i, m in enumerate(matches, 1):
         meta  = m.get("metadata", {})
         text  = meta.get("text", "")
         dtype = meta.get("doc_type", "?")
         score = m.get("score", 0)
-        parts.append(f"\n--- Chunk {i} (type={dtype}, relevance={score:.2f}) ---\n{text}")
+        
+        # Check if this chunk contains summer Olympics content
+        text_lower = text.lower()
+        is_summer = any(keyword in text_lower for keyword in summer_keywords)
+        
+        if is_summer:
+            logger.info(f"  [FILTERED] Chunk {i} contains summer Olympics content - excluding")
+            continue
+        
+        parts.append(f"\n--- Chunk {chunk_num} (type={dtype}, relevance={score:.2f}) ---\n{text}")
+        chunk_num += 1
 
     if medal_df is not None and not medal_df.empty:
         parts.append("\n\n[LIVE MEDAL STANDINGS - current]")
@@ -1134,9 +1165,11 @@ def main():
         st.session_state["lang"] = lang_from_url
         
     if "input_gen" not in st.session_state:
-        st.session_state[" input_gen"] = 0
+        st.session_state["input_gen"] = 0
     if "history" not in st.session_state:
         st.session_state["history"] = []
+    if "heat" not in st.session_state:
+        st.session_state["heat"] = 1
 
     active_lang = st.session_state["lang"]
 
@@ -1168,8 +1201,26 @@ def main():
     # COLUMN 1 - CONVERSATION
     # ═══════════════════════════════════════════════
     with chat_col:
-        # REMOVED: suggestion pills (wasted vertical space)
-        # Users can type questions directly
+        # suggestion pills
+        static_pills = t("suggestions_static")
+        pills = [(s, s) for s in static_pills]
+        if during_games:
+            pills.insert(2, (t("suggestion_schedule"),
+                             t("suggestion_schedule_query").format(date=today.strftime("%B %d"))))
+        else:
+            pills.insert(2, (t("suggestion_schedule_off"),
+                             t("suggestion_schedule_off")))
+
+        st.markdown(
+            f'<p class="try-label">{t("try_asking")}</p>',
+            unsafe_allow_html=True
+        )
+        pill_cols = st.columns(len(pills), gap="small")
+        for idx, (col, (label, query_text)) in enumerate(zip(pill_cols, pills)):
+            if col.button(label, use_container_width=True, key=f"pill_{idx}_{active_lang}_{st.session_state['input_gen']}"):
+                st.session_state["pending_query"] = query_text
+                st.session_state["input_gen"] += 1
+                st.rerun()
 
         pending = st.session_state.pop("pending_query", "")
 
@@ -1312,47 +1363,32 @@ def main():
                 st.markdown(log_html, unsafe_allow_html=True)
 
     # ═══════════════════════════════════════════════
-    # COLUMN 2 - INFO PANEL
+    # COLUMN 2 — INFO PANEL
     # ═══════════════════════════════════════════════
     with info_col:
 
-        # -- Competition Day / Countdown --
-        if during_games:
-            day_num  = (today - games_start).days + 1
-            date_str = today.strftime("%A, %B %d")
-            st.markdown(
-                f'<div class="info-day-box">'
-                f'<div class="info-day-label">Competition Day</div>'
-                f'<div class="info-day-num">Day {day_num}</div>'
-                f'<div class="info-day-date">{date_str}</div>'
-                f'</div>',
-                unsafe_allow_html=True
-            )
-        elif today < games_start:
-            countdown = (games_start - today).days
-            st.markdown(
-                f'<div class="info-day-box">'
-                f'<div class="info-day-label">Milano Cortina 2026</div>'
+        # ── Heat Slider (MOVED TO TOP) ──
+        st.markdown('<div class="sidebar-heading">🔥 Rivalry Heat</div>', unsafe_allow_html=True)
+        heat_labels = {1: "1 — Simmering", 2: "2 — Tension", 3: "3 — Sparring", 4: "4 — Heated", 5: "5 — Bloodsport"}
+        current_heat = st.session_state.get("heat", 1)
+        heat_val = st.slider(
+            "Rivalry Heat",
+            min_value=1,
+            max_value=5,
+            value=current_heat,
+            step=1,
+            key="heat_slider",
+            label_visibility="collapsed"
+        )
+        st.caption(heat_labels[heat_val])
+        if heat_val != current_heat:
+            st.session_state["heat"] = heat_val
 
-                f'<div class="info-day-num">{countdown} days</div>'
-                f'<div class="info-day-date">Until the Games begin</div>'
-                f'</div>',
-                unsafe_allow_html=True
-            )
-        else:
-            st.markdown(
-                f'<div class="info-day-box">'
-                f'<div class="info-day-label">Milano Cortina 2026</div>'
-                f'<div class="info-day-num">Finished</div>'
-                f'<div class="info-day-date">Feb 6 – Feb 22, 2026</div>'
-                f'</div>',
-                unsafe_allow_html=True
-            )
-
-        # gap between countdown and language toggle
+        # gap
         st.markdown('<div class="info-section-gap"></div>', unsafe_allow_html=True)
 
-        # -- Language toggle (flag buttons) --
+        # ── Language toggle (flag buttons) ──
+        st.markdown('<div class="sidebar-heading">🌍 Language</div>', unsafe_allow_html=True)
         LANG_DEFS = [
             ("EN", "🇬🇧", "English"),
             ("FR", "🇫🇷", "Français"),
@@ -1399,13 +1435,49 @@ def main():
         </script>
         """, unsafe_allow_html=True)
 
+        # gap
+        st.markdown('<div class="info-section-gap"></div>', unsafe_allow_html=True)
+
+        # ── Competition Day / Countdown ──
+        if during_games:
+            day_num  = (today - games_start).days + 1
+            date_str = today.strftime("%A, %B %d")
+            st.markdown(
+                f'<div class="info-day-box">'
+                f'<div class="info-day-label">Competition Day</div>'
+                f'<div class="info-day-num">Day {day_num}</div>'
+                f'<div class="info-day-date">{date_str}</div>'
+                f'</div>',
+                unsafe_allow_html=True
+            )
+        elif today < games_start:
+            countdown = (games_start - today).days
+            st.markdown(
+                f'<div class="info-day-box">'
+                f'<div class="info-day-label">Milano Cortina 2026</div>'
+                f'<div class="info-day-num">{countdown} days</div>'
+                f'<div class="info-day-date">Until the Games begin</div>'
+                f'</div>',
+                unsafe_allow_html=True
+            )
+        else:
+            st.markdown(
+                f'<div class="info-day-box">'
+                f'<div class="info-day-label">Milano Cortina 2026</div>'
+                f'<div class="info-day-num">Finished</div>'
+                f'<div class="info-day-date">Feb 6 – Feb 22, 2026</div>'
+                f'</div>',
+                unsafe_allow_html=True
+            )
+
         # gap before medal table
         st.markdown('<div class="info-section-gap"></div>', unsafe_allow_html=True)
 
-        # -- Medal Standings --
-        st.markdown(f'<div class="sidebar-heading">🏅 {t("standings_title")}</div>', unsafe_allow_html=True)
+        # ── Medal Standings + Stats (only during games) ──
+        if during_games:
+            st.markdown(f'<div class="sidebar-heading">🏅 {t("standings_title")}</div>', unsafe_allow_html=True)
 
-        if medal_df is not None and not medal_df.empty:
+            if medal_df is not None and not medal_df.empty:
             col_map = {}
             for c in medal_df.columns:
                 cl = str(c).lower().strip()
@@ -1466,65 +1538,45 @@ def main():
         # gap
         st.markdown('<div class="info-section-gap"></div>', unsafe_allow_html=True)
 
-        # -- Medals Awarded + Athletes Tracked --
-        total_medals = "-"
-        if medal_df is not None and not medal_df.empty:
-            for cn in ["Total", "total"]:
-                if cn in medal_df.columns:
-                    try:
-                        total_medals = f"{medal_df[cn].sum():,}"
-                    except Exception:
-                        pass
-                    break
+        # ── Medals Awarded + Athletes Tracked (only during games) ──
+        if during_games:
+            total_medals = "—"
+            if medal_df is not None and not medal_df.empty:
+                for cn in ["Total", "total"]:
+                    if cn in medal_df.columns:
+                        try:
+                            total_medals = f"{medal_df[cn].sum():,}"
+                        except Exception:
+                            pass
+                        break
 
-        st.markdown(
-            f'<div class="stat-row">'
-            f'<div class="stat-card">'
-            f'<div class="stat-val">{total_medals}</div>'
-            f'<div class="stat-label">{t("medals_label")}</div></div>'
-            f'<div class="stat-card">'
-            f'<div class="stat-val">407</div>'
-            f'<div class="stat-label">{t("athletes_label")}</div></div>'
-            f'</div>',
-            unsafe_allow_html=True
-        )
+            st.markdown(
+                f'<div class="stat-row">'
+                f'<div class="stat-card">'
+                f'<div class="stat-val">{total_medals}</div>'
+                f'<div class="stat-label">{t("medals_label")}</div></div>'
+                f'<div class="stat-card">'
+                f'<div class="stat-val">407</div>'
+                f'<div class="stat-label">{t("athletes_label")}</div></div>'
+                f'</div>',
+                unsafe_allow_html=True
+            )
 
-        # gap
-        st.markdown('<div class="info-section-gap"></div>', unsafe_allow_html=True)
+            # gap
+            st.markdown('<div class="info-section-gap"></div>', unsafe_allow_html=True)
 
-        # -- About --
+        # ── About ──
         st.markdown(f'<div class="sidebar-heading">{t("about_title")}</div>', unsafe_allow_html=True)
         st.markdown(
             '<div class="about-block">'
-            '<span class="about-name">Tyler</span> <span class="about-flag">USA - 2018 Bronze · Figure Skating</span><br>'
-            '<span class="about-name">Sasha</span> <span class="about-flag">RUS - 2014 & 2018 Silver · Figure Skating</span>'
-            '<div class="about-divider">-</div>'
+            '<span class="about-name">Tyler</span> <span class="about-flag">USA — 2018 Bronze · Figure Skating</span><br>'
+            '<span class="about-name">Sasha</span> <span class="about-flag">RUS — 2014 & 2018 Silver · Figure Skating</span>'
+            '<div class="about-divider">—</div>'
             'Rivals 2014–2018. Now partners. It\'s complicated.'
             '<div class="about-stack"><strong>Stack:</strong> Pinecone · Sentence Transformers · Wikipedia</div>'
             '</div>',
             unsafe_allow_html=True
         )
-
-        # gap
-        st.markdown('<div class="info-section-gap"></div>', unsafe_allow_html=True)
-
-        # -- Heat --
-        st.markdown('<div class="sidebar-heading">🔥 Rivalry Heat</div>', unsafe_allow_html=True)
-        heat_labels = {1: "1 - Simmering", 2: "2 - Tension", 3: "3 - Sparring", 4: "4 - Heated", 5: "5 - Bloodsport"}
-        current_heat = st.session_state.get("heat", 1)
-        heat_val = st.slider(
-            "Rivalry Heat",
-            min_value=1,
-            max_value=5,
-            value=current_heat,
-            step=1,
-            key="heat_slider",
-            label_visibility="collapsed"
-        )
-        st.caption(heat_labels[heat_val])
-        if heat_val != current_heat:
-            st.session_state["heat"] = heat_val
-
 
 if __name__ == "__main__":
     main()
