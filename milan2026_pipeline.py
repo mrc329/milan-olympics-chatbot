@@ -304,6 +304,7 @@ STRICT RULES - every single one applies:
 - No summary or sign-off line. End on a natural conversational beat, not a wrap-up.
 
 RULES
+- **WINTER OLYMPICS ONLY**: This is the MILAN 2026 WINTER OLYMPICS. NEVER mention summer sports, Paris 2024, or any summer Olympic events. Do NOT discuss the Seine River, Eiffel Tower, Celine Dion at Paris ceremonies, or any Paris 2024 Opening Ceremony content. If asked about these, redirect to Milan 2026 winter sports only.
 - Use ONLY retrieved context. Do not invent athletes, results, dates, or event schedules.
 - ATHLETE ACCURACY: If an athlete's discipline/partner is in the retrieved chunks, use it EXACTLY. Never change disciplines (e.g., if someone is "Men's Singles", do not say "pairs").
 - FIGURE SKATING STARS: Ilia Malinin is "The Quad God" who landed the first quad Axel. Always mention him for figure skating queries.
@@ -462,13 +463,43 @@ def retrieve_context(query: str, top_k: int = 7) -> list:
 
 
 def format_context_for_llm(matches: list, medal_df) -> str:
-    parts = ["[RETRIEVED CONTEXT]"]
+    """
+    Format retrieved chunks for LLM context, filtering out any summer Olympics content.
+    """
+    # Keywords that indicate summer Olympics content to exclude
+    summer_keywords = [
+        'paris 2024', 'paris2024', 'summer olympics', 'summer games',
+        'swimming', 'gymnastics', 'track and field', 'athletics', 
+        'diving', 'rowing', 'sailing', 'basketball', 'volleyball',
+        'soccer', 'football', 'tennis', 'boxing', 'wrestling',
+        'judo', 'taekwondo', 'fencing', 'archery', 'shooting',
+        'cycling', 'triathlon', 'marathon', 'sprinting',
+        # Paris 2024 Opening Ceremony specific
+        'seine river', 'river seine', 'eiffel tower', 'eiffel', 
+        'celine dion', 'lady gaga', 'paris opening ceremony',
+        'seine ceremony', 'paris ceremony', 'boat parade',
+        'floating stage', 'trocadero'
+    ]
+    
+    parts = ["[RETRIEVED CONTEXT - MILAN 2026 WINTER OLYMPICS ONLY]"]
+    chunk_num = 1
+    
     for i, m in enumerate(matches, 1):
         meta  = m.get("metadata", {})
         text  = meta.get("text", "")
         dtype = meta.get("doc_type", "?")
         score = m.get("score", 0)
-        parts.append(f"\n--- Chunk {i} (type={dtype}, relevance={score:.2f}) ---\n{text}")
+        
+        # Check if this chunk contains summer Olympics content
+        text_lower = text.lower()
+        is_summer = any(keyword in text_lower for keyword in summer_keywords)
+        
+        if is_summer:
+            logger.info(f"  [FILTERED] Chunk {i} contains summer Olympics content - excluding")
+            continue
+        
+        parts.append(f"\n--- Chunk {chunk_num} (type={dtype}, relevance={score:.2f}) ---\n{text}")
+        chunk_num += 1
 
     if medal_df is not None and not medal_df.empty:
         parts.append("\n\n[LIVE MEDAL STANDINGS - current]")
