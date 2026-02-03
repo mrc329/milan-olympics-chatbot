@@ -3,29 +3,27 @@ on:
   schedule:
     - cron: "*/30 * * * *"   # Every 30 minutes
   workflow_dispatch:           # Manual trigger
+
 jobs:
+  # ═══════════════════════════════════════════════════════
+  # JOB 1 — Codante API → embed → upsert (athletes / events / schedules)
+  # ═══════════════════════════════════════════════════════
   update:
     runs-on: ubuntu-latest
     steps:
-      # ── Checkout code ──
       - name: Checkout
         uses: actions/checkout@v4
 
-      # ── Setup Python ──
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
           python-version: "3.11"
 
-      # ── Run unit tests (pure stdlib — no deps, no Pinecone needed) ──
       - name: Run tests
         run: |
           python -m unittest test_milan2026_pipeline -v
 
-      # ── Restore model cache ──
-      # Caches ~/.cache/huggingface/hub (where sentence-transformers actually
-      # downloads models now).  restore-keys gives a partial-match fallback
-      # so a key like "st-model-" will still hit even if the full key changes.
+      # Restore model cache — correct path + restore-keys fallback
       - name: Restore model cache
         id: cache-restore
         uses: actions/cache/restore@v4
@@ -35,14 +33,13 @@ jobs:
           restore-keys: |
             st-model-all-MiniLM-L6-v2-
 
-      # ── Install runtime dependencies ──
       - name: Install dependencies
         run: |
           pip install --quiet \
             pinecone \
-            sentence-transformers
+            sentence-transformers \
+            requests
 
-      # ── Run the pipeline (connects to Pinecone, embeds, upserts) ──
       - name: Run Milan 2026 Pipeline
         env:
           PINECONE_API_KEY: ${{ secrets.PINECONE_API_KEY }}
@@ -50,10 +47,74 @@ jobs:
         run: |
           python milan2026_pipeline.py
 
-      # ── Save model cache (only runs on a cache miss) ──
-      # This is the missing piece — without it a cache miss never rebuilds.
+      # Save cache only on a miss — rebuilds after the first cold run
       - name: Save model cache
         if: steps.cache-restore.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: ~/.cache/huggingface/hub
+          key: st-model-all-MiniLM-L6-v2-${{ runner.os }}
+
+  # ═══════════════════════════════════════════════════════
+  # JOB 2 — Search agent: RSS feeds → narratives namespace
+  #
+  # Runs in PARALLEL with the pipeline job.  Pulls fresh storylines
+  # from 4 structured RSS feeds, filters for Olympic content,
+  # deduplicates against Pinecone (cosine >= 0.92 = skip),
+  # embeds new items, upserts into the "narratives" namespace.
+  #
+  # Sources (all official):
+  #   Olympic Channel — IOC podcast/story feed
+  #   BBC Sport       — Olympics coverage
+  #   Team USA        — USOPC official news
+  #   AP News         — wire service (NBC/ESPN source)
+  #
+  # No scraping. olympics.com blocks bots via robots.txt.
+  # ═══════════════════════════════════════════════════════
+  search-agent:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      # ── unit tests first — pure stdlib, no deps needed ──
+      - name: Run search-agent tests
+        run: |
+          python -m unittest test_milan2026_search_agent -v
+
+      # Same model cache as the pipeline job — shared key
+      - name: Restore model cache
+        id: cache-restore-agent
+        uses: actions/cache/restore@v4
+        with:
+          path: ~/.cache/huggingface/hub
+          key: st-model-all-MiniLM-L6-v2-${{ runner.os }}
+          restore-keys: |
+            st-model-all-MiniLM-L6-v2-
+
+      - name: Install dependencies
+        run: |
+          pip install --quiet \
+            pinecone \
+            sentence-transformers \
+            requests
+
+      # ── run the agent ──
+      # Fetches RSS feeds + Codante /countries, dedupes, embeds, upserts.
+      - name: Run Search Agent
+        env:
+          PINECONE_API_KEY: ${{ secrets.PINECONE_API_KEY }}
+          AGENT_LOG_LEVEL: INFO
+        run: |
+          python milan2026_search_agent.py
+
+      - name: Save model cache
+        if: steps.cache-restore-agent.outputs.cache-hit != 'true'
         uses: actions/cache/save@v4
         with:
           path: ~/.cache/huggingface/hub
