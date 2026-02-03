@@ -40,6 +40,14 @@ from datetime import datetime, timezone
 from sentence_transformers import SentenceTransformer
 from pinecone import Pinecone
 
+# Import NLU module
+try:
+    from milan2026_nlu import analyze_content, enrich_metadata
+    NLU_AVAILABLE = True
+except ImportError:
+    logger.warning("NLU module not available - running without entity extraction")
+    NLU_AVAILABLE = False
+
 # ═══════════════════════════════════════════════════════════
 # CONFIG
 # ═══════════════════════════════════════════════════════════
@@ -188,8 +196,13 @@ OLYMPIC_KEYWORDS = {
     "milano cortina", "milan cortina", "milano 2026", "milan 2026",
     "cortina 2026", "winter olympics 2026", "olympic winter games 2026",
     
-    # Generic Olympic terms (winter-specific only)
-    "winter olympics", "olympic winter games",
+    # Generic Olympic terms
+    "winter olympics", "olympic games", "olympics", "olympian", "ioc",
+    "international olympic committee",
+    
+    # Medal/competition terms
+    "gold medal", "silver medal", "bronze medal", "olympic medal",
+    "podium", "olympic champion", "olympic athlete",
     
     # Winter sports
     "alpine skiing", "figure skating", "ice hockey", "curling",
@@ -198,33 +211,11 @@ OLYMPIC_KEYWORDS = {
     "nordic combined", "short track", "ski mountaineering",
 }
 
-# SUMMER OLYMPICS EXCLUSIONS - reject any chunk with these keywords
-SUMMER_KEYWORDS = {
-    # Summer event identifiers
-    "paris 2024", "paris2024", "summer olympics", "summer games",
-    "rio 2016", "tokyo 2020", "los angeles 2028",
-    
-    # Summer sports
-    "swimming", "track and field", "athletics", "gymnastics",
-    "diving", "rowing", "sailing", "basketball", "volleyball",
-    "soccer", "football", "tennis", "boxing", "wrestling",
-    "judo", "taekwondo", "fencing", "archery", "shooting",
-    "cycling", "triathlon", "marathon", "sprinting", "100m", "200m",
-    "high jump", "long jump", "pole vault", "javelin", "discus",
-    "water polo", "synchronized swimming", "beach volleyball",
-    "bmx", "skateboarding", "surfing", "sport climbing",
-    "breaking", "karate", "softball", "baseball",
-}
-
 
 def filter_olympic_content(chunks: list[dict]) -> list[dict]:
     """
-    Keep only chunks mentioning WINTER Olympic-related keywords.
-    Prevents NBA/NFL/soccer stories AND summer Olympics from polluting narratives.
-    
-    Two-stage filter:
-    1. Must contain at least one WINTER Olympic keyword
-    2. Must NOT contain any summer sport keywords
+    Keep only chunks mentioning Olympic-related keywords.
+    Prevents NBA/NFL/soccer stories from polluting narratives namespace.
     """
     if not chunks:
         return []
@@ -235,20 +226,10 @@ def filter_olympic_content(chunks: list[dict]) -> list[dict]:
     for chunk in chunks:
         text_lower = chunk["text"].lower()
         
-        # Stage 1: Check for winter Olympic keywords
-        has_winter_keyword = any(kw in text_lower for kw in OLYMPIC_KEYWORDS)
-        
-        # Stage 2: Check for summer sport keywords (exclusion)
-        has_summer_keyword = any(kw in text_lower for kw in SUMMER_KEYWORDS)
-        
-        # Keep only if has winter keywords AND does NOT have summer keywords
-        if has_winter_keyword and not has_summer_keyword:
+        if any(kw in text_lower for kw in OLYMPIC_KEYWORDS):
             kept.append(chunk)
         else:
-            if has_summer_keyword:
-                logger.debug(f"  FILTERED (summer sport detected): {chunk['url'] or chunk['source_key']}")
-            else:
-                logger.debug(f"  FILTERED (no winter Olympic keywords): {chunk['url'] or chunk['source_key']}")
+            logger.debug(f"  FILTERED (no Olympic keywords): {chunk['url'] or chunk['source_key']}")
     
     logger.info(f"  {len(kept)} Olympic-related / {len(chunks) - len(kept)} filtered out")
     return kept
@@ -289,7 +270,7 @@ def deduplicate(chunks: list[dict], model: SentenceTransformer, index) -> list[d
 # EMBED + UPSERT
 # ═══════════════════════════════════════════════════════════
 def upsert_chunks(chunks: list[dict], model: SentenceTransformer, index):
-    """Batch-embed and upsert into the narratives namespace."""
+    """Batch-embed and upsert into the narratives namespace with NLU enrichment."""
     if not chunks:
         logger.info("Nothing to upsert.")
         return
@@ -299,21 +280,42 @@ def upsert_chunks(chunks: list[dict], model: SentenceTransformer, index):
     vectors = model.encode(texts, show_progress_bar=False).tolist()
 
     records = []
+    nlu_enriched = 0
+    
     for chunk, vec in zip(chunks, vectors):
+        metadata = {
+            "text":        chunk["text"],
+            "source_key":  chunk["source_key"],
+            "url":         chunk["url"],
+            "doc_type":    "narrative",
+            "fetched_at":  datetime.now(timezone.utc).isoformat(),
+        }
+        
+        # Add NLU enrichment if available
+        if NLU_AVAILABLE:
+            try:
+                nlu_result = analyze_content(
+                    text=chunk["text"],
+                    title=chunk.get("title", ""),
+                    min_quality=0.2  # Low threshold for RSS (we already filtered by keywords)
+                )
+                if nlu_result:
+                    nlu_meta = enrich_metadata(nlu_result)
+                    metadata.update(nlu_meta)
+                    nlu_enriched += 1
+                    logger.debug(f"NLU enriched: {len(nlu_result.athletes)} athletes, {len(nlu_result.topics)} topics")
+            except Exception as e:
+                logger.warning(f"NLU enrichment failed for chunk {chunk['id']}: {e}")
+        
         records.append({
             "id": chunk["id"],
             "values": vec,
-            "metadata": {
-                "text":        chunk["text"],
-                "source_key":  chunk["source_key"],
-                "url":         chunk["url"],
-                "doc_type":    "narrative",
-                "fetched_at":  datetime.now(timezone.utc).isoformat(),
-            }
+            "metadata": metadata
         })
 
     index.upsert(vectors=records, namespace=NAMESPACE)
-    logger.info("Upsert complete.")
+    logger.info(f"Upsert complete. NLU enriched: {nlu_enriched}/{len(chunks)} chunks")
+
 
 
 # ═══════════════════════════════════════════════════════════
