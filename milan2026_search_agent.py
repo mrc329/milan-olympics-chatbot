@@ -188,13 +188,8 @@ OLYMPIC_KEYWORDS = {
     "milano cortina", "milan cortina", "milano 2026", "milan 2026",
     "cortina 2026", "winter olympics 2026", "olympic winter games 2026",
     
-    # Generic Olympic terms
-    "winter olympics", "olympic games", "olympics", "olympian", "ioc",
-    "international olympic committee",
-    
-    # Medal/competition terms
-    "gold medal", "silver medal", "bronze medal", "olympic medal",
-    "podium", "olympic champion", "olympic athlete",
+    # Generic Olympic terms (winter-specific only)
+    "winter olympics", "olympic winter games",
     
     # Winter sports
     "alpine skiing", "figure skating", "ice hockey", "curling",
@@ -203,11 +198,33 @@ OLYMPIC_KEYWORDS = {
     "nordic combined", "short track", "ski mountaineering",
 }
 
+# SUMMER OLYMPICS EXCLUSIONS - reject any chunk with these keywords
+SUMMER_KEYWORDS = {
+    # Summer event identifiers
+    "paris 2024", "paris2024", "summer olympics", "summer games",
+    "rio 2016", "tokyo 2020", "los angeles 2028",
+    
+    # Summer sports
+    "swimming", "track and field", "athletics", "gymnastics",
+    "diving", "rowing", "sailing", "basketball", "volleyball",
+    "soccer", "football", "tennis", "boxing", "wrestling",
+    "judo", "taekwondo", "fencing", "archery", "shooting",
+    "cycling", "triathlon", "marathon", "sprinting", "100m", "200m",
+    "high jump", "long jump", "pole vault", "javelin", "discus",
+    "water polo", "synchronized swimming", "beach volleyball",
+    "bmx", "skateboarding", "surfing", "sport climbing",
+    "breaking", "karate", "softball", "baseball",
+}
+
 
 def filter_olympic_content(chunks: list[dict]) -> list[dict]:
     """
-    Keep only chunks mentioning Olympic-related keywords.
-    Prevents NBA/NFL/soccer stories from polluting narratives namespace.
+    Keep only chunks mentioning WINTER Olympic-related keywords.
+    Prevents NBA/NFL/soccer stories AND summer Olympics from polluting narratives.
+    
+    Two-stage filter:
+    1. Must contain at least one WINTER Olympic keyword
+    2. Must NOT contain any summer sport keywords
     """
     if not chunks:
         return []
@@ -218,10 +235,20 @@ def filter_olympic_content(chunks: list[dict]) -> list[dict]:
     for chunk in chunks:
         text_lower = chunk["text"].lower()
         
-        if any(kw in text_lower for kw in OLYMPIC_KEYWORDS):
+        # Stage 1: Check for winter Olympic keywords
+        has_winter_keyword = any(kw in text_lower for kw in OLYMPIC_KEYWORDS)
+        
+        # Stage 2: Check for summer sport keywords (exclusion)
+        has_summer_keyword = any(kw in text_lower for kw in SUMMER_KEYWORDS)
+        
+        # Keep only if has winter keywords AND does NOT have summer keywords
+        if has_winter_keyword and not has_summer_keyword:
             kept.append(chunk)
         else:
-            logger.debug(f"  FILTERED (no Olympic keywords): {chunk['url'] or chunk['source_key']}")
+            if has_summer_keyword:
+                logger.debug(f"  FILTERED (summer sport detected): {chunk['url'] or chunk['source_key']}")
+            else:
+                logger.debug(f"  FILTERED (no winter Olympic keywords): {chunk['url'] or chunk['source_key']}")
     
     logger.info(f"  {len(kept)} Olympic-related / {len(chunks) - len(kept)} filtered out")
     return kept
