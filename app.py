@@ -1143,10 +1143,32 @@ def main():
                 log_and_show("info", f"Retrieved {len(matches)} chunks")
                 context_text = format_context_for_llm(matches, medal_df)
                 
-                # Smart schedule injection based on query and game status
-                schedule_context = None
+                # Query schedules namespace if needed
+                schedule_text = ""
                 query_lower = query.lower()
                 asks_about_schedule = any(kw in query_lower for kw in ["schedule", "when", "what's on", "coming up", "events", "today", "tomorrow"])
+                
+                if asks_about_schedule:
+                    try:
+                        vec = embedding_model.encode(query).tolist()
+                        schedule_results = pinecone_index.query(
+                            vector=vec,
+                            top_k=15,
+                            namespace="schedules",
+                            include_metadata=True
+                        )
+                        if schedule_results and schedule_results.get("matches"):
+                            schedule_text = "\n".join([
+                                match['metadata'].get('text', '')
+                                for match in schedule_results['matches']
+                                if match.get('score', 0) > 0.5
+                            ])
+                            log_and_show("info", f"Retrieved {len(schedule_results['matches'])} schedule chunks")
+                    except Exception as e:
+                        logger.warning(f"Schedule query failed: {e}")
+                
+                # Smart schedule injection based on query and game status
+                schedule_context = None
                 
                 if asks_about_schedule and schedule_text:
                     if not during_games:
