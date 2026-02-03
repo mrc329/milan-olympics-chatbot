@@ -192,19 +192,18 @@ def parse_rss_feed(feed_def: dict) -> list[dict]:
 # OLYMPIC CONTENT FILTER (NLU-lite)
 # ═══════════════════════════════════════════════════════════
 OLYMPIC_KEYWORDS = {
-    # Event-specific
+    # Event-specific (Milan 2026 only)
     "milano cortina", "milan cortina", "milano 2026", "milan 2026",
     "cortina 2026", "winter olympics 2026", "olympic winter games 2026",
     
-    # Generic Olympic terms
-    "winter olympics", "olympic games", "olympics", "olympian", "ioc",
-    "international olympic committee",
+    # Winter Olympics (generic but winter-specific)
+    "winter olympics", "olympic winter games",
     
     # Medal/competition terms
     "gold medal", "silver medal", "bronze medal", "olympic medal",
     "podium", "olympic champion", "olympic athlete",
     
-    # Winter sports
+    # Winter sports (specific keywords to avoid summer sports)
     "alpine skiing", "figure skating", "ice hockey", "curling",
     "bobsled", "bobsleigh", "skeleton", "luge", "biathlon", "cross-country",
     "ski jumping", "snowboard", "speed skating", "freestyle skiing",
