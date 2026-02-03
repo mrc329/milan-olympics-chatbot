@@ -49,6 +49,9 @@ from datetime import datetime, timezone
 import logging
 import time
 import re
+import requests
+import pandas as pd
+from io import StringIO
 
 # ─────────────────────────────────────────────
 # LOGGING
@@ -312,6 +315,79 @@ def fetch_rumor(rumor: dict) -> dict:
 def fetch_injury(injury: dict) -> dict:
     log.debug("fetch injury: %s", injury["athlete"])
     return injury
+
+def fetch_live_medals_from_wikipedia():
+    """
+    Fetch live medal table from Wikipedia.
+    Returns dict mapping country -> {gold, silver, bronze, total}
+    Returns None if page doesn't exist yet or fetch fails.
+    """
+    log.info("Fetching live medal table from Wikipedia...")
+    try:
+        resp = requests.get(
+            "https://en.wikipedia.org/w/api.php",
+            params={
+                "action": "parse",
+                "page":   "2026_Winter_Olympics_medal_table",
+                "prop":   "text",
+                "format": "json"
+            },
+            headers={
+                "User-Agent": "MilanoCortina2026Pipeline/1.0 (medal table fetch)"
+            },
+            timeout=10
+        )
+        resp.raise_for_status()
+        html = resp.json().get("parse", {}).get("text", {}).get("*", "")
+
+        if not html or not html.strip():
+            log.warning("Medal page returned empty HTML - not yet populated.")
+            return None
+
+        # Parse HTML tables
+        medal_data = {}
+        for tbl in pd.read_html(StringIO(html)):
+            cols = [str(c).lower() for c in tbl.columns]
+            if "gold" in cols and "silver" in cols and "bronze" in cols:
+                tbl.columns = [str(c).strip() for c in tbl.columns]
+                
+                # Find country column
+                country_col = None
+                for c in tbl.columns:
+                    cl = str(c).lower()
+                    if cl in ("nation", "country", "noc", "nations"):
+                        country_col = c
+                        break
+                
+                if not country_col:
+                    continue
+                
+                # Extract medal counts
+                for _, row in tbl.iterrows():
+                    country = str(row.get(country_col, "")).strip()
+                    if not country or country.lower() in ("total", "neutral", "ain") or country[0].isdigit():
+                        continue
+                    
+                    try:
+                        medal_data[country] = {
+                            "gold": int(row.get("Gold", 0)),
+                            "silver": int(row.get("Silver", 0)),
+                            "bronze": int(row.get("Bronze", 0)),
+                            "total": int(row.get("Total", 0))
+                        }
+                    except (ValueError, TypeError):
+                        continue
+                
+                if medal_data:
+                    log.info(f"Fetched medals for {len(medal_data)} countries")
+                    return medal_data
+
+        log.warning("Medal page exists but no valid table parsed.")
+        return None
+
+    except Exception as e:
+        log.error(f"Medal fetch error: {e}")
+        return None
 
 def fetch_event_results(event_name: str) -> list[dict]:
     log.debug("fetch event results: %s", event_name)
@@ -723,6 +799,28 @@ def main():
             medalists = fetch_event_results(event_name)
             upsert_event(event_name, medalists)
             time.sleep(0.1)
+        
+        # 4.5 Medal Standings (LIVE only) - fetch from Wikipedia
+        log.info("── medal standings ──")
+        medal_data = fetch_live_medals_from_wikipedia()
+        if medal_data:
+            # Create top 10 medal standings narrative
+            sorted_countries = sorted(
+                medal_data.items(),
+                key=lambda x: (x[1]['gold'], x[1]['silver'], x[1]['bronze']),
+                reverse=True
+            )[:10]
+            
+            standings_text = "MEDAL STANDINGS - Milano Cortina 2026\n\n"
+            standings_text += "Rank | Country | Gold | Silver | Bronze | Total\n"
+            standings_text += "---- | ------- | ---- | ------ | ------ | -----\n"
+            for i, (country, medals) in enumerate(sorted_countries, 1):
+                standings_text += f"{i:2d}   | {country:7s} | {medals['gold']:4d} | {medals['silver']:6d} | {medals['bronze']:6d} | {medals['total']:5d}\n"
+            
+            upsert_narrative("Medal Standings", standings_text)
+            log.info(f"Upserted medal standings for top {len(sorted_countries)} countries")
+        else:
+            log.warning("Could not fetch medal standings from Wikipedia - page may not be live yet")
 
     # 5. Athletes
     log.info("── athletes ──")
