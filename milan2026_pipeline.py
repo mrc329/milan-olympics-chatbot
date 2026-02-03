@@ -1,756 +1,1551 @@
 """
-milan2026_pipeline.py (NAMESPACE-AWARE VERSION)
-================================================
-Winter Olympics-focused pipeline for Milan 2026.
+MILAN 2026 WINTER OLYMPICS - TYLER & SASHA
+============================================
+Production Streamlit app. Deploy via Streamlit Community Cloud from GitHub.
 
-UPDATED: Routes vectors to appropriate Pinecone namespaces:
-  - athletes/     → athlete profiles (enriched with medals, injuries)
-  - events/       → event results, upsets, country_upsets
-  - narratives/   → pages, rumors, injuries
+Requirements: see requirements.txt
+Secrets: PINECONE_API_KEY, HF_TOKEN  (in .streamlit/secrets.toml)
 
-Flows (in execution order):
-  1. Narratives    — ceremony / cultural pages.  Always runs in PRE + LIVE.
-  2. Rumors        — unconfirmed reports (performer lineups, schedule changes).
-                     PRE + LIVE.  Each rumor carries a confidence level and a
-                     source.  A rumor can be promoted to a narrative if it gets
-                     confirmed on a subsequent run.
-  3. Injuries      — injury / fitness status for key athletes.  PRE + LIVE.
-                     Each injury record has a severity (low / moderate / high)
-                     and affects the athlete's vector on the next athlete pass.
-  4. Events        — Winter event results.  LIVE only.
-  5. Athletes      — enriched profiles.  Always runs.  Cross-references
-                     EVENT_RESULTS, INJURIES, and RUMORS to build a single
-                     rich vector per athlete.
-  6. Upset detect         — LIVE only, after events.  Any individual
-                           medalist not on the favorites roster gets a
-                           dedicated upset vector.
-  7. Country upset detect — LIVE only, after events.  Three signals:
-                           • team_event: favored country lost gold in a
-                             team event (hockey, curling).
-                           • surge: a country's gold count exceeds its
-                             historical baseline by more than the threshold.
-                           • shutout: an expected country is entirely absent
-                             from a podium.
-
-Freshness SLAs (target max staleness during LIVE):
-  narrative       60 min
-  rumor           20 min   ← rumors confirm or die fast
-  injury          15 min   ← can flip same-day
-  athlete         30 min
-  event           15 min
-  upset            5 min
-  country_upset    5 min   ← same urgency as individual upsets
-
-Tracks every vector touched this run and prints a GitHub-Actions-friendly
-summary at the end.
+Architecture:
+  Pinecone              -> semantic search (athletes / history / storylines / schedule)
+  SentenceTransformers  -> FREE local embeddings (all-MiniLM-L6-v2, 384-dim)
+  HuggingFace Inference -> Qwen2.5-7B-Instruct, serverless, no GPU needed
+  Wikipedia API         -> live medal table (15-min TTL cache)
+  i18n                  -> EN / FR / IT language toggle (UI + LLM output)
+  Logging               -> file (app.log) + session sidebar panel
 """
 
-from datetime import datetime, timezone
+import streamlit as st
+import pandas as pd
+import requests
 import logging
 import time
-import re
+import os
+from datetime import datetime
+from sentence_transformers import SentenceTransformer
+from pinecone import Pinecone
+from huggingface_hub import InferenceClient
 
-# ─────────────────────────────────────────────
-# LOGGING
-# ─────────────────────────────────────────────
-import os as _os
+
+# =========================================================
+# 1. LOGGING
+# =========================================================
+LOG_FILE = "app.log"
+
 logging.basicConfig(
-    level=getattr(logging, _os.getenv("PIPELINE_LOG_LEVEL", "INFO").upper(), logging.INFO),
-    format="%(asctime)s  %(levelname)-8s %(message)s",
-    datefmt="%Y-%m-%dT%H:%M:%SZ",
-    force=True,
-)
-log = logging.getLogger("milan2026_pipeline")
-
-# ─────────────────────────────────────────────
-# CONFIG
-# ─────────────────────────────────────────────
-GAMES_START = datetime(2026, 2, 5, tzinfo=timezone.utc)
-GAMES_END   = datetime(2026, 2, 22, 23, 59, tzinfo=timezone.utc)
-
-FRESHNESS_SLA_MINUTES = {
-    "narrative":      60,
-    "rumor":          20,
-    "injury":         15,
-    "athlete":        30,
-    "event":          15,
-    "upset":           5,
-    "country_upset":   5,
-}
-
-KNOWN_FAVORITES = {
-    "yuzuru_hanyu",
-    "ester_ledeck",
-    "jessie_diggins",
-    "john_shuster",
-    "kendall_coyne_schofield",
-    "danny_o_shea",
-    "lee_stecklein",
-    "mikaela_shiffrin",
-    "irene_schouten",
-    "therese_johaug",
-}
-
-TEAM_EVENTS = {
-    "Women's ice hockey tournament",
-    "Men's curling",
-}
-
-TEAM_EVENT_FAVORITES = {
-    "Women's ice hockey tournament": "USA",
-    "Men's curling":                 "USA",
-}
-
-HISTORICAL_GOLD_BASELINE = {
-    "USA": 1,
-    "NOR": 1,
-    "JPN": 1,
-    "SWE": 0,
-    "NED": 0,
-    "CAN": 0,
-    "CZE": 0,
-    "FIN": 0,
-}
-
-COUNTRY_SURGE_THRESHOLD = 1
-
-EVENT_EXPECTED_COUNTRIES = {
-    "Women's downhill alpine skiing":      {"USA", "CZE"},
-    "Men's figure skating free skate":     {"JPN"},
-    "Women's ice hockey tournament":       {"USA", "CAN"},
-    "Women's cross-country skiathlon":     {"NOR", "USA"},
-    "Men's curling":                       {"USA"},
-    "Women's 500m speed skating":          {"USA", "NED"},
-}
-
-# ─────────────────────────────────────────────
-# PINECONE + EMBEDDING MODEL
-# ─────────────────────────────────────────────
-INDEX_NAME   = "milan-2026-olympics"
-MODEL_NAME   = "all-MiniLM-L6-v2"
-
-_pinecone_index = None
-_embedder       = None
-
-def _init_pinecone():
-    """Connect to Pinecone and load the embedding model."""
-    global _pinecone_index, _embedder
-    from pinecone import Pinecone
-    from sentence_transformers import SentenceTransformer
-
-    log.info("connecting to Pinecone index '%s'…", INDEX_NAME)
-    pc = Pinecone(api_key=_os.getenv("PINECONE_API_KEY"))
-    _pinecone_index = pc.Index(INDEX_NAME)
-    stats = _pinecone_index.describe_index_stats()
-    log.info("Pinecone ready — %d vectors currently in index", stats["total_vector_count"])
-
-    log.info("loading embedding model '%s'…", MODEL_NAME)
-    _embedder = SentenceTransformer(MODEL_NAME)
-    log.info("embedding model ready (dim=%d)", _embedder.get_sentence_embedding_dimension())
-
-# ─────────────────────────────────────────────
-# VECTOR STORE (in-memory fallback for tests)
-# ─────────────────────────────────────────────
-VECTOR_STORE = {}
-
-def upsert_vector(vector_id: str, text: str, metadata: dict) -> str:
-    """
-    Upsert a vector to the appropriate namespace based on vector_id prefix.
-    
-    Namespace routing:
-      athlete::*          → athletes
-      event::*            → events
-      upset::*            → events
-      country_upset::*    → events
-      page::*             → narratives
-      rumor::*            → narratives
-      injury::*           → narratives
-    """
-    action = "inserted" if vector_id not in VECTOR_STORE else "updated"
-
-    if _pinecone_index is not None:
-        # Determine namespace from vector_id prefix
-        if vector_id.startswith("athlete::"):
-            namespace = "athletes"
-        elif vector_id.startswith("event::") or vector_id.startswith("upset::") or vector_id.startswith("country_upset::"):
-            namespace = "events"
-        elif vector_id.startswith("page::") or vector_id.startswith("rumor::") or vector_id.startswith("injury::"):
-            namespace = "narratives"
-        else:
-            namespace = "narratives"  # default fallback
-        
-        # Embed and upsert
-        embedding = _embedder.encode(text).tolist()
-        metadata_with_text = {**metadata, "text": text, "namespace": namespace}
-        _pinecone_index.upsert(
-            vectors=[{
-                "id": vector_id,
-                "values": embedding,
-                "metadata": metadata_with_text,
-            }],
-            namespace=namespace
-        )
-        
-        log.debug(f"upserted to namespace '{namespace}': {vector_id}")
-
-    # Always mirror to in-memory store (tests read it for assertions)
-    VECTOR_STORE[vector_id] = {"text": text, "metadata": metadata}
-    log.info("upsert %-8s → %s (namespace: %s)", action.upper(), vector_id, 
-             metadata.get('namespace', 'in-memory-only'))
-    return action
-
-# ─────────────────────────────────────────────
-# UTILS
-# ─────────────────────────────────────────────
-def resolve_mode(now: datetime | None = None) -> str:
-    now = now or datetime.now(timezone.utc)
-    if now < GAMES_START:
-        return "PRE_GAMES"
-    if GAMES_START <= now <= GAMES_END:
-        return "LIVE_GAMES"
-    return "DORMANT"
-
-def freshness_metadata(source: str, volatility: str) -> dict:
-    return {
-        "source": source,
-        "volatility": volatility,
-        "last_fetched_utc": datetime.now(timezone.utc)
-        .isoformat(timespec="seconds")
-        .replace("+00:00", "Z"),
-    }
-
-def slug(s: str) -> str:
-    return re.sub(r"[^a-z0-9]+", "_", s.lower()).strip("_")
-
-# ─────────────────────────────────────────────
-# DISCOVER ENTITIES
-# ─────────────────────────────────────────────
-def discover_entities(mode: str) -> dict:
-    entities = {
-        "narratives": [
-            "Opening ceremony",
-            "Closing ceremony",
-            "Cultural program",
-        ],
-
-        "rumors": [
-            {
-                "id":              "bocelli_opening",
-                "headline":        "Andrea Bocelli rumored to perform at Milano Cortina Opening Ceremony",
-                "detail":          "Multiple Italian media outlets report that tenor Andrea Bocelli is in advanced discussions to headline the Opening Ceremony musical segment. No official confirmation from the Milano Cortina organizing committee yet.",
-                "confidence":      0.75,
-                "source":          "Italian sports press",
-                "related_entity":  "Opening ceremony",
-                "status":          "unconfirmed",
-            },
-        ],
-
-        "injuries": [
-            {
-                "athlete":        "Mikaela Shiffrin",
-                "condition":      "Left ankle sprain — sustained during a World Cup giant slalom in Val d'Isère. Cleared for travel but training load reduced heading into the Games.",
-                "severity":       "moderate",
-                "status":         "training with modifications",
-                "event_impact":   ["Women's downhill alpine skiing"],
-                "source":         "USSA official statement",
-            },
-        ],
-
-        "athletes": [
-            {"name": "Mikaela Shiffrin",           "events": ["Women's downhill alpine skiing"],                          "favorite": True},
-            {"name": "Yuzuru Hanyu",               "events": ["Men's figure skating free skate"],                         "favorite": True},
-            {"name": "Ester Ledecká",              "events": ["Women's downhill alpine skiing", "Women's sprint"],        "favorite": True},
-            {"name": "Jessie Diggins",             "events": ["Women's cross-country skiathlon"],                         "favorite": True},
-            {"name": "John Shuster",               "events": ["Men's curling"],                                           "favorite": True},
-            {"name": "Kendall Coyne Schofield",    "events": ["Women's 500m speed skating"],                              "favorite": True},
-            {"name": "Danny O'Shea",               "events": ["Men's pairs figure skating"],                              "favorite": True},
-            {"name": "Lee Stecklein",              "events": ["Women's ice hockey"],                                      "favorite": True},
-            {"name": "Irene Schouten",             "events": ["Women's 500m speed skating"],                              "favorite": True},
-            {"name": "Therese Johaug",             "events": ["Women's cross-country skiathlon"],                         "favorite": True},
-        ],
-
-        "events": [],
-    }
-    if mode == "LIVE_GAMES":
-        entities["events"] = [
-            "Women's downhill alpine skiing",
-            "Men's figure skating free skate",
-            "Women's ice hockey tournament",
-            "Women's cross-country skiathlon",
-            "Men's curling",
-            "Women's 500m speed skating",
-        ]
-    return entities
-
-# ─────────────────────────────────────────────
-# FETCH STUBS
-# ─────────────────────────────────────────────
-def fetch_page(title: str) -> str:
-    log.debug("fetch narrative: %s", title)
-    return f"Latest updated content for {title}."
-
-def fetch_athlete_bio(name: str) -> str:
-    log.debug("fetch athlete bio: %s", name)
-    bios = {
-        "Mikaela Shiffrin":          "Three-time Olympic medalist in alpine skiing. Known for aggressive downhill technique and fierce rivalries.",
-        "Yuzuru Hanyu":              "Back-to-back Olympic gold medalist (2014, 2018). Pioneered the first competitive quad Axel attempt.",
-        "Ester Ledecká":             "Czech athlete competing in both alpine skiing and sprint cycling — one of the most versatile Winter Olympians ever.",
-        "Jessie Diggins":            "2022 Olympic gold medalist in cross-country skiing. First American woman to win Olympic cross-country gold.",
-        "John Shuster":              "Led the USA to curling gold at 2018 PyeongChang. Veteran skip with three Olympic appearances.",
-        "Kendall Coyne Schofield":   "2018 Olympic gold medalist in speed skating. Known for blazing 500m times.",
-        "Danny O'Shey":              "Rising star in pairs figure skating. Making his Olympic debut at Milano Cortina 2026.",
-        "Lee Stecklein":             "USA women's ice hockey captain. Two-time Olympic gold medalist (2018, 2022).",
-        "Irene Schouten":            "Defending Olympic champion in multiple speed skating events. Dominant distance skater.",
-        "Therese Johaug":            "Cross-country legend returning after missing 2022. Chasing more gold.",
-    }
-    return bios.get(name, f"Athlete profile for {name}.")
-
-def fetch_rumor(rumor: dict) -> dict:
-    log.debug("fetch rumor: %s", rumor["id"])
-    return rumor
-
-def fetch_injury(injury: dict) -> dict:
-    log.debug("fetch injury: %s", injury["athlete"])
-    return injury
-
-def fetch_event_results(event_name: str) -> list[dict]:
-    log.debug("fetch event results: %s", event_name)
-    STUBBED_RESULTS = {
-        "Women's downhill alpine skiing": [
-            {"rank": 1, "name": "Sara Hector",       "country": "SWE"},
-            {"rank": 2, "name": "Mikaela Shiffrin",   "country": "USA"},
-            {"rank": 3, "name": "Ester Ledecká",      "country": "CZE"},
-        ],
-        "Men's figure skating free skate": [
-            {"rank": 1, "name": "Yuzuru Hanyu",      "country": "JPN"},
-            {"rank": 2, "name": "Kagiyama Kaito",    "country": "JPN"},
-            {"rank": 3, "name": "Shoma Uno",         "country": "JPN"},
-        ],
-        "Women's ice hockey tournament": [
-            {"rank": 1, "name": "Canada Women",      "country": "CAN"},
-            {"rank": 2, "name": "USA Women",         "country": "USA"},
-            {"rank": 3, "name": "Finland Women",     "country": "FIN"},
-        ],
-        "Women's cross-country skiathlon": [
-            {"rank": 1, "name": "Jessie Diggins",    "country": "USA"},
-            {"rank": 2, "name": "Maja Dahlmeier",    "country": "GER"},
-            {"rank": 3, "name": "Therese Johaug",    "country": "NOR"},
-        ],
-        "Men's curling": [
-            {"rank": 1, "name": "Sweden Men",        "country": "SWE"},
-            {"rank": 2, "name": "USA Men",           "country": "USA"},
-            {"rank": 3, "name": "Norway Men",        "country": "NOR"},
-        ],
-        "Women's 500m speed skating": [
-            {"rank": 1, "name": "Irene Schouten",    "country": "NED"},
-            {"rank": 2, "name": "Kendall Coyne Schofield", "country": "USA"},
-            {"rank": 3, "name": "Nao Kodaira",       "country": "JPN"},
-        ],
-    }
-    return STUBBED_RESULTS.get(event_name, [
-        {"rank": 1, "name": f"{event_name} Gold",   "country": "USA"},
-        {"rank": 2, "name": f"{event_name} Silver", "country": "CAN"},
-        {"rank": 3, "name": f"{event_name} Bronze", "country": "NOR"},
-    ])
-
-# ─────────────────────────────────────────────
-# TRACKING
-# ─────────────────────────────────────────────
-UPDATED_VECTORS      = []
-EVENT_RESULTS_THIS_RUN = {}
-INJURIES_THIS_RUN     = {}
-RUMORS_THIS_RUN       = []
-
-def upsert_document(vector_id: str, text: str, metadata: dict):
-    action = upsert_vector(vector_id, text, metadata)
-    UPDATED_VECTORS.append((vector_id, action))
-
-# ─────────────────────────────────────────────
-# UPSERT HELPERS
-# ─────────────────────────────────────────────
-def upsert_narrative(title: str, text: str):
-    vid = f"page::{slug(title)}"
-    upsert_document(vid, text, {
-        "doc_type": "narrative",
-        "title":    title,
-        **freshness_metadata("wikipedia", "high"),
-    })
-
-def upsert_rumor(rumor: dict):
-    rid    = rumor["id"]
-    status = rumor["status"]
-    vid    = f"rumor::{rid}"
-
-    if status == "confirmed":
-        log.warning("rumor CONFIRMED → promoting to narrative: %s", rid)
-        related = rumor.get("related_entity", rid)
-        promoted_text = (
-            f"CONFIRMED: {rumor['headline']}\n"
-            f"{rumor['detail']}\n"
-            f"(Originally reported as unconfirmed; now confirmed by {rumor['source']}.)"
-        )
-        upsert_narrative(related, promoted_text)
-        log.warning("rumor vector %s deleted (confirmed → narrative)", vid)
-        return
-
-    if status == "denied":
-        log.warning("rumor DENIED → vector %s deleted", vid)
-        return
-
-    confidence = rumor.get("confidence", 0.5)
-    conf_label = "low" if confidence < 0.4 else "moderate" if confidence < 0.7 else "high"
-
-    text = (
-        f"RUMOR ({conf_label} confidence) — {rumor['headline']}\n"
-        f"{rumor['detail']}\n"
-        f"Source: {rumor['source']}.\n"
-        f"Status: Unconfirmed as of this update. Treat as unverified."
-    )
-    upsert_document(vid, text, {
-        "doc_type":       "rumor",
-        "rumor_id":       rid,
-        "confidence":     confidence,
-        "conf_label":     conf_label,
-        "status":         status,
-        "related_entity": rumor.get("related_entity"),
-        **freshness_metadata(rumor.get("source", "press"), "very_high"),
-    })
-
-def upsert_injury(injury: dict):
-    athlete  = injury["athlete"]
-    severity = injury["severity"]
-    vid      = f"injury::{slug(athlete)}"
-
-    INJURIES_THIS_RUN[slug(athlete)] = injury
-
-    severity_icon = {"low": "🟡", "moderate": "🟠", "high": "🔴"}.get(severity, "⚪")
-
-    text = (
-        f"INJURY REPORT — {athlete}\n"
-        f"Severity: {severity.upper()} {severity_icon}\n"
-        f"Condition: {injury['condition']}\n"
-        f"Status: {injury['status']}\n"
-        f"Events at risk: {', '.join(injury.get('event_impact', []) or ['None identified'])}.\n"
-        f"Source: {injury.get('source', 'unattributed')}."
-    )
-    upsert_document(vid, text, {
-        "doc_type":     "injury",
-        "athlete":      athlete,
-        "severity":     severity,
-        "status":       injury.get("status"),
-        "event_impact": injury.get("event_impact", []),
-        **freshness_metadata(injury.get("source", "team_report"), "very_high"),
-    })
-
-def upsert_event(event_name: str, medalists: list[dict]):
-    vid = f"event::{slug(event_name)}"
-    lines = [f"{m['rank']}. {m['name']} ({m['country']})" for m in medalists]
-    text  = f"Event results — {event_name}\n" + "\n".join(lines)
-    upsert_document(vid, text, {
-        "doc_type":  "event_result",
-        "event":     event_name,
-        "medalists": medalists,
-        **freshness_metadata("wikipedia", "low"),
-    })
-    EVENT_RESULTS_THIS_RUN[event_name] = medalists
-
-def upsert_athlete(athlete: dict):
-    name      = athlete["name"]
-    vid       = f"athlete::{slug(name)}"
-    bio       = fetch_athlete_bio(name)
-    favorite  = athlete.get("favorite", False)
-    scheduled = athlete.get("events", [])
-
-    medal_lines = []
-    for event_name, medalists in EVENT_RESULTS_THIS_RUN.items():
-        for m in medalists:
-            if slug(m["name"]) == slug(name):
-                ordinal = {1: "Gold", 2: "Silver", 3: "Bronze"}
-                medal_lines.append(f"  {ordinal.get(m['rank'], '?')} — {event_name}")
-
-    injury_info = INJURIES_THIS_RUN.get(slug(name))
-
-    sections = [
-        f"Athlete: {name}",
-        f"Bio: {bio}",
-        f"Favorite: {'Yes' if favorite else 'No'}",
-        f"Scheduled events: {', '.join(scheduled) if scheduled else 'None'}",
+    level=logging.INFO,
+    format="%(asctime)s [%(levelname)s] %(message)s",
+    datefmt="%H:%M:%S",
+    handlers=[
+        logging.FileHandler(LOG_FILE, mode="a"),
+        logging.StreamHandler()
     ]
+)
+logger = logging.getLogger("milan2026")
 
-    if medal_lines:
-        sections.append("Medals this Games:\n" + "\n".join(medal_lines))
-    else:
-        sections.append("Medals this Games: None yet.")
 
-    if injury_info:
-        sev_icon = {"low": "🟡", "moderate": "🟠", "high": "🔴"}.get(injury_info["severity"], "⚪")
-        sections.append(
-            f"⚠️  INJURY FLAG {sev_icon} — {injury_info['severity'].upper()}\n"
-            f"  Condition: {injury_info['condition']}\n"
-            f"  Status: {injury_info['status']}\n"
-            f"  Events at risk: {', '.join(injury_info.get('event_impact', []))}"
-        )
+def log_and_show(level: str, msg: str):
+    """Log + push into session state for the sidebar panel."""
+    getattr(logger, level)(msg)
+    if "log_entries" not in st.session_state:
+        st.session_state["log_entries"] = []
+    st.session_state["log_entries"].append(
+        f"[{datetime.now().strftime('%H:%M:%S')}] [{level.upper()}] {msg}"
+    )
+    st.session_state["log_entries"] = st.session_state["log_entries"][-30:]
 
-    text = "\n".join(sections)
 
-    meta = {
-        "doc_type":         "athlete",
-        "name":             name,
-        "favorite":         favorite,
-        "scheduled_events": scheduled,
-        "has_medal":        len(medal_lines) > 0,
-        **freshness_metadata("wikipedia", "very_high"),
+# =========================================================
+# 2. i18n - ALL USER-FACING STRINGS
+# =========================================================
+I18N = {
+    "EN": {
+        "page_title":        "Milan 2026 - Tyler & Sasha",
+        "header_title":      "MILAN 2026 WINTER OLYMPICS",
+        "header_tagline":    "Tyler & Sasha - live commentary",
+        "try_asking":        "Try asking…",
+        "input_label":       "Ask Tyler & Sasha anything about Milan 2026:",
+        "input_placeholder": "e.g. Who will win gold in alpine skiing?",
+        "spinner_text":      "Tyler & Sasha are discussing…",
+        "dashboard_title":   "Live Dashboard",
+        "vectors_label":     "Knowledge Base Vectors",
+        "medals_label":      "Medals Awarded",
+        "athletes_label":    "Athletes Tracked",
+        "standings_title":   "Medal Standings",
+        "fetched_at":        "Fetched: {time} · auto-refresh every 15 min",
+        "log_title":         "System Log",
+        "log_empty":         "Logs appear here after your first query.",
+        "about_title":       "About",
+        "about_text":        "**Tyler** USA - 2018 Bronze · Figure Skating\n**Sasha** RUS - 2014 & 2018 Silver · Figure Skating\n\nRivals 2014–2018. Now partners. It's complicated.\n\n**Stack:** Pinecone · Sentence Transformers · Wikipedia",
+        "games_not_started": "Medal table not yet available. Games start Feb 6.",
+        "suggestion_schedule": "What's on today's schedule?",
+        "suggestion_schedule_query": "What's on the schedule for {date}?",
+        "suggestion_schedule_off": "What events are coming up?",
+        "suggestions_static": [
+            "Who should I watch in figure skating?",
+            "Who are the USA medal favorites?",
+            "Tell me about the comeback stories"
+        ],
+        "llm_lang_instruction": "Respond in English.",
+    },
+    "FR": {
+        "page_title":        "Milan 2026 - Tyler & Sasha",
+        "header_title":      "JEUX OLYMPIQUES D'HIVER MILAN 2026",
+        "header_tagline":    "Tyler & Sasha - commentaire en direct",
+        "try_asking":        "Essayez de demander…",
+        "input_label":       "Posez une question à Tyler & Sasha sur Milan 2026 :",
+        "input_placeholder": "ex. Qui va gagner l'or en ski alpine ?",
+        "spinner_text":      "Tyler & Sasha sont en train de discuter…",
+        "dashboard_title":   "Tableau de bord en direct",
+        "vectors_label":     "Vecteurs Base de Connaissances",
+        "medals_label":      "Médailles Attribuées",
+        "athletes_label":    "Athlètes Suivis",
+        "standings_title":   "Classement des médailles",
+        "fetched_at":        "Récupéré : {time} · rafraîchissement toutes les 15 min",
+        "log_title":         "Journal système",
+        "log_empty":         "Les journaux apparaissent après votre première question.",
+        "about_title":       "À propos",
+        "about_text":        "**Tyler** USA - Bronze 2018 · Patinage artistique\n**Sasha** RUS - Argent 2014 & 2018 · Patinage artistique\n\nRivaux 2014–2018. Maintenant partenaires. C'est compliqué.\n\n**Pile :** Pinecone · Sentence Transformers · Wikipedia",
+        "games_not_started": "Le tableau des médailles n'est pas encore disponible. Les Jeux commencent le 6 février.",
+        "suggestion_schedule": "Qu'est-il prévu aujourd'hui ?",
+        "suggestion_schedule_query": "Qu'est-il prévu pour le {date} ?",
+        "suggestion_schedule_off": "Quels événements à venir ?",
+        "suggestions_static": [
+            "Qui regarder en patinage artistique ?",
+            "Qui sont les favorites pour une médaille (USA) ?",
+            "Parlez-moi des histoires de retour"
+        ],
+        "llm_lang_instruction": "Répondez en français.",
+    },
+    "IT": {
+        "page_title":        "Milano 2026 - Tyler & Sasha",
+        "header_title":      "OLIMPIADI INVERNALI MILANO 2026",
+        "header_tagline":    "Tyler & Sasha - commento dal vivo",
+        "try_asking":        "Prova a chiedere…",
+        "input_label":       "Chiedi qualcosa a Tyler & Sasha su Milano 2026:",
+        "input_placeholder": "es. Chi vincerà l'oro nello sci alpino?",
+        "spinner_text":      "Tyler & Sasha stanno discutendo…",
+        "dashboard_title":   "Dashboard dal vivo",
+        "vectors_label":     "Vettori Base di Conoscenza",
+        "medals_label":      "Medaglie Assegnate",
+        "athletes_label":    "Atleti Tracciati",
+        "standings_title":   "Classifica delle medaglie",
+        "fetched_at":        "Recuperato: {time} · aggiornamento ogni 15 min",
+        "log_title":         "Log di sistema",
+        "log_empty":         "I log compaiono dopo la prima domanda.",
+        "about_title":       "Informazioni",
+        "about_text":        "**Tyler** USA - Bronzo 2018 · Pattinaggio artistico\n**Sasha** RUS - Argento 2014 & 2018 · Pattinaggio artistico\n\nRivali 2014–2018. Ora partner. È complicato.\n\n**Stack:** Pinecone · Sentence Transformers · Wikipedia",
+        "games_not_started": "La tabella delle medaglie non è ancora disponibile. I Giochi iniziano il 6 febbraio.",
+        "suggestion_schedule": "Cosa è previsto oggi?",
+        "suggestion_schedule_query": "Cosa è previsto per il {date}?",
+        "suggestion_schedule_off": "Quali eventi in arrivo?",
+        "suggestions_static": [
+            "Chi guardare nel pattinaggio artistico?",
+            "Chi sono i favoriti per la medaglia (USA)?",
+            "Raccontami le storie di ritorno"
+        ],
+        "llm_lang_instruction": "Rispondi in italiano.",
     }
-    if injury_info:
-        meta["injury_risk"] = injury_info["severity"]
+}
 
-    upsert_document(vid, text, meta)
 
-def upsert_upset(event_name: str, medalist: dict):
-    name    = medalist["name"]
-    country = medalist["country"]
-    rank    = medalist["rank"]
-    ordinal = {1: "Gold", 2: "Silver", 3: "Bronze"}.get(rank, "Medal")
+def t(key: str):
+    """Return translated string (or list) for active language."""
+    lang = st.session_state.get("lang", "EN")
+    return I18N[lang].get(key, I18N["EN"].get(key, key))
 
-    vid  = f"upset::{slug(event_name)}_{slug(name)}"
-    text = (
-        f"UPSET — {event_name}\n"
-        f"{name} ({country}) won {ordinal} — an unexpected result.\n"
-        f"{name} was not among the pre-Games favorites for this event.\n"
-        f"This is one of the surprise storylines of Milano Cortina 2026."
-    )
-    upsert_document(vid, text, {
-        "doc_type": "upset",
-        "event":    event_name,
-        "athlete":  name,
-        "country":  country,
-        "medal":    ordinal,
-        **freshness_metadata("results_scraper", "very_high"),
-    })
-    log.info("UPSET: %s (%s) — %s in %s", name, country, ordinal, event_name)
 
-def upsert_country_upset(country: str, signal_type: str, detail: str, metadata_extra: dict):
-    vid  = f"country_upset::{signal_type}_{slug(country)}"
-    if "event" in metadata_extra:
-        vid = f"country_upset::{signal_type}_{slug(country)}_{slug(metadata_extra['event'])}"
+# =========================================================
+# 3. PAGE CONFIG
+# =========================================================
+st.set_page_config(
+    page_title="Milan 2026 - Tyler & Sasha",
+    page_icon="⛷️",
+    layout="wide",
+    initial_sidebar_state="expanded"
+)
 
-    text = (
-        f"COUNTRY UPSET ({signal_type.replace('_', ' ').upper()}) — {country}\n"
-        f"{detail}\n"
-        f"This is a notable storyline at Milano Cortina 2026."
-    )
-    upsert_document(vid, text, {
-        "doc_type":    "country_upset",
-        "country":     country,
-        "signal_type": signal_type,
-        **metadata_extra,
-        **freshness_metadata("results_scraper", "very_high"),
-    })
-    log.info("COUNTRY UPSET (%s): %s", signal_type, country)
 
-# ─────────────────────────────────────────────
-# UPSET DETECTION
-# ─────────────────────────────────────────────
-def detect_upsets():
-    log.info("── upset detection (individual) ──")
-    upsets_found = 0
-    for event_name, medalists in EVENT_RESULTS_THIS_RUN.items():
-        if event_name in TEAM_EVENTS:
-            log.debug("skipping team event: %s", event_name)
-            continue
-        for m in medalists:
-            if slug(m["name"]) not in KNOWN_FAVORITES:
-                upsert_upset(event_name, m)
-                upsets_found += 1
-    if upsets_found == 0:
-        log.debug("no individual upsets this run")
-    return upsets_found
+# =========================================================
+# 4. SECRETS
+# =========================================================
+def get_secret(key: str) -> str:
+    try:
+        return st.secrets[key]
+    except Exception:
+        return os.getenv(key, "")
 
-def detect_country_upsets():
-    log.info("── upset detection (country) ──")
-    country_upsets_found = 0
 
-    gold_tally = {}
-    for event_name, medalists in EVENT_RESULTS_THIS_RUN.items():
-        for m in medalists:
-            c = m["country"]
-            if m["rank"] == 1:
-                gold_tally[c] = gold_tally.get(c, 0) + 1
+PINECONE_API_KEY  = get_secret("PINECONE_API_KEY")
+HF_TOKEN          = get_secret("HF_TOKEN")
+INDEX_NAME        = "milan-2026-olympics"
 
-    # Signal 1: team event
-    log.debug("[1/3] team event check")
-    for event_name, favored_country in TEAM_EVENT_FAVORITES.items():
-        if event_name not in EVENT_RESULTS_THIS_RUN:
-            continue
-        gold_winner = next(
-            (m for m in EVENT_RESULTS_THIS_RUN[event_name] if m["rank"] == 1),
-            None
+
+# =========================================================
+# 5. CACHED RESOURCES
+# =========================================================
+@st.cache_resource(show_spinner="Loading embedding model…")
+def load_embedding_model():
+    logger.info("Loading all-MiniLM-L6-v2…")
+    m = SentenceTransformer("all-MiniLM-L6-v2")
+    logger.info("Embedding model ready.")
+    return m
+
+
+@st.cache_resource(show_spinner="Connecting to Pinecone…")
+def load_pinecone_index():
+    pc  = Pinecone(api_key=PINECONE_API_KEY)
+    idx = pc.Index(INDEX_NAME)
+    logger.info(f"Connected to Pinecone: {INDEX_NAME}")
+    return idx
+
+
+@st.cache_resource
+def load_hf_client():
+    try:
+        client = InferenceClient(
+            model="Qwen/Qwen2.5-7B-Instruct",
+            token=HF_TOKEN,
+            provider="together"
         )
-        if gold_winner and gold_winner["country"] != favored_country:
-            actual_country = gold_winner["country"]
-            upsert_country_upset(
-                country=actual_country,
-                signal_type="team_event",
-                detail=(
-                    f"{actual_country} won gold in {event_name}, "
-                    f"defeating {favored_country} who were the pre-Games favorites. "
-                    f"Winner: {gold_winner['name']}."
-                ),
-                metadata_extra={
-                    "event":            event_name,
-                    "favored_country":  favored_country,
-                    "winner_name":      gold_winner["name"],
-                },
-            )
-            country_upsets_found += 1
+        logger.info("HuggingFace InferenceClient ready (Qwen2.5-7B-Instruct via Together AI).")
+        return client
+    except Exception as e:
+        logger.error(f"HuggingFace client init failed: {e}", exc_info=True)
+        st.error(f"Failed to initialize HuggingFace client: {e}")
+        return None
 
-    # Signal 2: surge
-    log.debug("[2/3] surge check")
-    for country, golds in sorted(gold_tally.items(), key=lambda x: -x[1]):
-        baseline = HISTORICAL_GOLD_BASELINE.get(country, 0)
-        delta    = golds - baseline
-        if delta > COUNTRY_SURGE_THRESHOLD:
-            upsert_country_upset(
-                country=country,
-                signal_type="surge",
-                detail=(
-                    f"{country} has won {golds} gold medal{'s' if golds != 1 else ''} "
-                    f"— {delta} more than the {baseline} expected based on historical performance. "
-                    f"A genuine surprise run at these Games."
-                ),
-                metadata_extra={
-                    "golds_actual":   golds,
-                    "golds_baseline": baseline,
-                    "delta":          delta,
-                },
-            )
-            country_upsets_found += 1
 
-    # Signal 3: shutout
-    log.debug("[3/3] shutout check")
-    for event_name, expected_countries in EVENT_EXPECTED_COUNTRIES.items():
-        if event_name not in EVENT_RESULTS_THIS_RUN:
-            continue
-        actual_countries = {m["country"] for m in EVENT_RESULTS_THIS_RUN[event_name]}
-        for ec in expected_countries:
-            if ec not in actual_countries:
-                upsert_country_upset(
-                    country=ec,
-                    signal_type="shutout",
-                    detail=(
-                        f"{ec} was expected to medal in {event_name} "
-                        f"but did not appear on the podium — a significant absence."
-                    ),
-                    metadata_extra={"event": event_name},
+embedding_model = load_embedding_model()
+pinecone_index  = load_pinecone_index()
+hf_client       = load_hf_client()
+
+
+# =========================================================
+# 6. LIVE DATA
+# =========================================================
+@st.cache_data(ttl=900, show_spinner=False)
+def fetch_live_medals():
+    """Wikipedia medal table. Returns (df|None, time_str, error|None)."""
+    logger.info("Fetching live medal table…")
+    try:
+        resp = requests.get(
+            "https://en.wikipedia.org/w/api.php",
+            params={
+                "action": "parse",
+                "page":   "2026_Winter_Olympics_medal_table",
+                "prop":   "text",
+                "format": "json"
+            },
+            headers={
+                "User-Agent": "MilanoCortina2026Bot/1.0 (medal table fetch)"
+            },
+            timeout=10
+        )
+        resp.raise_for_status()
+        html = resp.json().get("parse", {}).get("text", {}).get("*", "")
+
+        for tbl in pd.read_html(html):
+            cols = [str(c).lower() for c in tbl.columns]
+            if "gold" in cols and "silver" in cols and "bronze" in cols:
+                tbl.columns = [str(c).strip() for c in tbl.columns]
+                logger.info(f"Medal table fetched - {len(tbl)} rows")
+                return tbl, datetime.now().strftime("%I:%M %p"), None
+
+        logger.warning("Medal page exists but no table parsed.")
+        return None, datetime.now().strftime("%I:%M %p"), "Games not started - table not live yet."
+
+    except Exception as e:
+        logger.error(f"Medal fetch error: {e}")
+        return None, datetime.now().strftime("%I:%M %p"), str(e)
+
+
+def get_pinecone_vector_count():
+    """Uncached - always fresh."""
+    try:
+        stats = pinecone_index.describe_index_stats()
+        count = stats.get("total_vector_count", 0)
+        logger.info(f"Vector count: {count}")
+        return count
+    except Exception as e:
+        logger.error(f"Pinecone stats error: {e}")
+        return None
+
+
+# =========================================================
+# 7. SYSTEM PROMPT (language-aware)
+# =========================================================
+SYSTEM_PROMPT_BASE = """You are two retired Olympic figure skaters providing live commentary for the Milan 2026 Winter Olympics.
+
+TYLER (USA)
+Former US figure skater. 2018 PyeongChang bronze medalist. Charismatic, theatrical, thinks every program deserves a standing ovation. Loves the drama, the costumes, the STORY. Has strong opinions about everything and isn't afraid to be loud about them. Sometimes says things slightly wrong with total confidence - Sasha corrects him. Sasha is the only competitor who ever truly got under his skin, and he's never fully made peace with that.
+
+SASHA (Russia)
+Former Russian figure skating champion. 2014 & 2018 silver medalist. Technical perfectionist. Values discipline and precision over spectacle - thinks Americans talk too much and feel too much. Direct, occasionally cutting. When she compliments someone, it means everything. Dry humor. Tyler is the only person who ever made her feel like she had to prove herself - and she's never fully let go of that.
+
+{DYNAMIC_BLOCK}
+
+FORMAT
+Output ONLY lines in this exact pattern. No headers, no preamble, no trailing commentary.
+
+TYLER: [his line]
+SASHA: [her line]
+TYLER: [his line]
+SASHA: [her line]
+
+STRICT RULES - every single one applies:
+- Every line starts with exactly "TYLER:" or "SASHA:" followed by a space, then dialogue.
+- They MUST alternate. Tyler, Sasha, Tyler, Sasha. Never two Tyler lines in a row. Never two Sasha lines in a row.
+- Tyler ALWAYS goes first. Sasha ALWAYS has the final line.
+- 2-4 exchanges (so 4-8 lines total). Conversational.
+- Do NOT put the speaker name on its own line. WRONG: "USA Tyler" then dialogue on the next line.
+- Do NOT use emoji flags anywhere. Just the name then a colon.
+- No blank lines between exchanges.
+- No summary or sign-off line. End on a natural conversational beat, not a wrap-up.
+
+RULES
+- Use ONLY retrieved context. Do not invent athletes, results, dates, or event schedules.
+- ATHLETE ACCURACY: If an athlete's discipline/partner is in the retrieved chunks, use it EXACTLY. Never change disciplines (e.g., if someone is "Men's Singles", do not say "pairs").
+- FIGURE SKATING STARS: Ilia Malinin is "The Quad God" who landed the first quad Axel. Always mention him for figure skating queries.
+- SCHEDULE DATES: If you see chunks labeled "SCHEDULE: [event] on [date]" or "[TODAY'S EVENTS]", use EXACTLY those dates. Do NOT change, guess, or invent any dates.
+- If asked about upcoming events and NO SCHEDULE chunks are in context, have Tyler admit he doesn't have the schedule handy and Sasha confirm there are no confirmed dates yet. Do NOT copy or echo any instruction text literally - respond naturally in character.
+- If no context is available at all for a question, have Tyler express uncertainty and Sasha briefly confirm they have nothing to say on it. Keep it natural and in character.
+- Tyler embellishes personality. Sasha sticks to facts.
+- Reference [LIVE MEDAL STANDINGS] for medal counts. Reference [UPCOMING EVENTS] or [TODAY'S EVENTS] for schedule data. Never invent either.
+- Fun entertainment, not a textbook.
+- CRITICAL: Never output instruction text, fallback templates, or prompt fragments as part of your dialogue. Every line must be natural spoken dialogue only.
+"""
+
+
+
+# --- Heat levels: Shane & Ilya energy scaled 1–5 ---
+# Level 1 = the subtext is there but buried. Level 5 = full Shane/Ilya mode -
+# competitive banter, personal digs, moments where the tension tips into
+# something else entirely. Each level also bumps temperature.
+HEAT_DYNAMICS = {
+    1: (
+        "DYNAMIC\n"
+        "Rivals 2014-2018, now commentary partners. The tension is there if you know where to look - "
+        "a beat too long before Sasha responds, Tyler saying something that lands closer to the truth "
+        "than he probably meant. They never address it directly. When they agree, it lands heavy.",
+        0.7   # temperature
+    ),
+    2: (
+        "DYNAMIC\n"
+        "The rivalry never fully cooled. Tyler pushes a little - a comment about 2018, a reference "
+        "to a moment only they were part of. Sasha corrects him with more edge than necessary. "
+        "They're professional, but there's a crackle. Something unfinished neither of them names.\n"
+        "Example beat: Tyler says something like 'You always did that' about a competitor's habit. "
+        "Sasha pauses. 'You watched that closely.' Tyler deflects. The moment passes.",
+        0.75
+    ),
+    3: (
+        "DYNAMIC\n"
+        "They disagree openly now. Tyler makes a claim, Sasha takes it apart - not to be helpful, "
+        "to WIN. Old competition surfaces: who skated cleaner, who deserved what. They finish each "
+        "other's sentences sometimes, and it catches them both off guard.\n"
+        "Example beats: Tyler says 'You make everything a fight.' Sasha: 'You like a fight.' "
+        "Tyler pauses. 'Yeah. I do.' Beat. They move on like nothing happened. OR: They agree on "
+        "something rare. Tyler: 'Wait, did we just agree?' Sasha: 'Do not make big deal.' Tyler: 'I'm making the BIGGEST deal.'",
+        0.82
+    ),
+    4: (
+        "DYNAMIC\n"
+        "The gloves are off. Tyler baits, Sasha bites. They argue about technique, about scoring, "
+        "about 2014 and 2018 - and it's personal because it IS personal. Tyler remembers specific "
+        "things about Sasha's skating - a program, a moment on ice. Sasha remembers his too. "
+        "Neither of them has ever had a competitor who knew them that well.\n"
+        "Example beats: Tyler references something specific from their rivalry - 'You remember that "
+        "program at PyeongChang?' Sasha: 'Which one.' Tyler: 'You know which one.' Long pause. "
+        "They both know. OR: Tyler says something vulnerable disguised as a joke. Sasha doesn't "
+        "laugh. Just holds the moment. Then moves on.",
+        0.88
+    ),
+    5: (
+        "DYNAMIC\n"
+        "Full rivalry mode. Tyler is loud, theatrical, wrong half the time - and he KNOWS it, "
+        "he's doing it to get a reaction. Sasha dismantles him with cold precision, and sometimes "
+        "adds something quiet at the end that stops Tyler mid-sentence. They interrupt each other.\n"
+        "Example beats: Tyler says 'I hate you.' Sasha: 'No, you don't.' Tyler, quietly: 'No. I don't.' "
+        "Tension. Move on. OR: Sasha says something unexpected - 'You were better than you think.' "
+        "Tyler stares. 'What?' Sasha: 'In 2018. You were better than the score said.' Beat. "
+        "Tyler doesn't know what to do with that. Neither does she.",
+        0.95
+    ),
+}
+
+def build_system_prompt(lang: str, heat: int = 1) -> str:
+    heat = max(1, min(5, heat))  # clamp
+    dynamic_text, _ = HEAT_DYNAMICS[heat]
+    prompt = SYSTEM_PROMPT_BASE.replace("{DYNAMIC_BLOCK}", dynamic_text)
+    lang_instr = I18N[lang].get("llm_lang_instruction", "Respond in English.")
+    return (
+        prompt
+        + f"\nLANGUAGE\n{lang_instr} "
+        + "Keep character names Tyler and Sasha in English always.\n"
+    )
+
+
+def get_temperature(heat: int) -> float:
+    """Return the temperature for a given heat level."""
+    heat = max(1, min(5, heat))
+    _, temp = HEAT_DYNAMICS[heat]
+    return temp
+
+
+# =========================================================
+# 8. RAG RETRIEVAL
+# =========================================================
+def retrieve_context(query: str, top_k: int = 7) -> list:
+    logger.info(f"Query: '{query}'")
+    t0 = time.time()
+    try:
+        vec = embedding_model.encode(query).tolist()
+        
+        # Query multiple namespaces and combine results
+        namespaces = ["athletes", "events", "narratives", "schedules", "history"]
+        all_matches = []
+        
+        # Boost factor for figure skating queries
+        query_lower = query.lower()
+        is_figure_skating_query = any(kw in query_lower for kw in ["figure skat", "skater", "skating", "quad", "axel", "jump"])
+        
+        for ns in namespaces:
+            try:
+                # Increase top_k for athletes namespace to ensure we get stars
+                ns_top_k = top_k * 2 if ns == "athletes" and is_figure_skating_query else top_k
+                
+                results = pinecone_index.query(
+                    vector=vec,
+                    top_k=ns_top_k,
+                    namespace=ns,
+                    include_metadata=True
                 )
-                country_upsets_found += 1
+                matches = results.get("matches", [])
+                
+                # Boost scores for key athletes in figure skating queries
+                if ns == "athletes" and is_figure_skating_query:
+                    star_athletes = {"ilia malinin", "yuma kagiyama", "mikaela shiffrin", "yuzuru hanyu", 
+                                   "gabriella papadakis", "guillaume cizeron", "madison chock", "evan bates"}
+                    for match in matches:
+                        name = match.get('metadata', {}).get('name', '').lower()
+                        if any(star in name for star in star_athletes):
+                            match['score'] = match.get('score', 0) * 1.3  # 30% boost
+                
+                # Tag each match with its namespace
+                for match in matches:
+                    match['metadata']['_namespace'] = ns
+                    all_matches.append(match)
+                
+                logger.info(f"  {ns}: {len(matches)} chunks")
+            except Exception as e:
+                logger.warning(f"  {ns}: query failed - {e}")
+                continue
+        
+        # Sort by score descending and take top_k overall
+        all_matches.sort(key=lambda x: x.get('score', 0), reverse=True)
+        top_matches = all_matches[:top_k]
+        
+        elapsed = time.time() - t0
+        logger.info(f"Retrieved {len(top_matches)} chunks from {len(namespaces)} namespaces in {elapsed:.2f}s")
+        
+        for i, m in enumerate(top_matches):
+            meta = m.get("metadata", {})
+            ns = meta.get("_namespace", "?")
+            label = meta.get("name", meta.get("event", meta.get("moment", meta.get("storyline", ""))))
+            logger.info(f"  [{i+1}] {ns} | {meta.get('doc_type','?')} | {label} | score={m.get('score',0):.3f}")
+        
+        return top_matches
+    except Exception as e:
+        logger.error(f"Retrieval failed: {e}", exc_info=True)
+        return []
 
-    if country_upsets_found == 0:
-        log.debug("no country-level upsets this run")
-    return country_upsets_found
 
-# ─────────────────────────────────────────────
-# SUMMARY
-# ─────────────────────────────────────────────
-def summarize_updates(updated_list: list[tuple[str, str]]) -> dict:
-    summary = {
-        "narratives":     [],
-        "rumors":         [],
-        "injuries":       [],
-        "athletes":       [],
-        "events":         [],
-        "upsets":         [],
-        "country_upsets": [],
-    }
-    for vid, action in updated_list:
-        record = f"{vid} ({action})"
-        if   vid.startswith("athlete::"):        summary["athletes"].append(record)
-        elif vid.startswith("event::"):          summary["events"].append(record)
-        elif vid.startswith("country_upset::"):  summary["country_upsets"].append(record)
-        elif vid.startswith("upset::"):          summary["upsets"].append(record)
-        elif vid.startswith("rumor::"):          summary["rumors"].append(record)
-        elif vid.startswith("injury::"):         summary["injuries"].append(record)
-        else:                                    summary["narratives"].append(record)
-    return summary
+def format_context_for_llm(matches: list, medal_df) -> str:
+    parts = ["[RETRIEVED CONTEXT]"]
+    for i, m in enumerate(matches, 1):
+        meta  = m.get("metadata", {})
+        text  = meta.get("text", "")
+        dtype = meta.get("doc_type", "?")
+        score = m.get("score", 0)
+        parts.append(f"\n--- Chunk {i} (type={dtype}, relevance={score:.2f}) ---\n{text}")
 
-# ─────────────────────────────────────────────
-# MAIN PIPELINE
-# ─────────────────────────────────────────────
+    if medal_df is not None and not medal_df.empty:
+        parts.append("\n\n[LIVE MEDAL STANDINGS - current]")
+        parts.append(medal_df.head(15).to_string(index=False))
+
+    return "\n".join(parts)
+
+
+# =========================================================
+# 9. GENERATION - Qwen2.5-7B-Instruct via HuggingFace / Together AI
+#    Serverless inference. No GPU needed locally.
+#    Free tier: ~few hundred req/hr. PRO ($9/mo): 20x more.
+#    Multilingual (29 langs incl EN/FR/IT). Strong structured output.
+# =========================================================
+MODEL_ID = "Qwen/Qwen2.5-7B-Instruct"
+
+
+def generate_response(user_query: str, context_text: str, lang: str, heat: int = 1) -> str:
+    if hf_client is None:
+        logger.error("generate_response called but hf_client is None - init must have failed.")
+        return (
+            "TYLER: Uh… something went wrong on our end.\n\n"
+            "SASHA: The broadcast feed dropped. Try again."
+        )
+    logger.info(f"Calling {MODEL_ID} via HuggingFace…")
+    t0 = time.time()
+    try:
+        messages = [
+            {"role": "system", "content": build_system_prompt(lang, heat)},
+            {"role": "user",   "content": f"{context_text}\n\n[USER QUESTION]\n{user_query}"}
+        ]
+
+        output = hf_client.chat_completion(
+            messages=messages,
+            max_tokens=500,
+            temperature=0.7,  # fixed — higher temps at heat 3-5 introduced hallucinations
+            top_p=0.9
+        )
+
+        elapsed = time.time() - t0
+        text = output.choices[0].message.content
+
+        # token usage (available on most providers)
+        usage = getattr(output, "usage", None)
+        if usage:
+            logger.info(
+                f"Qwen responded in {elapsed:.2f}s | "
+                f"in={usage.prompt_tokens} out={usage.completion_tokens} tokens"
+            )
+        else:
+            logger.info(f"Qwen responded in {elapsed:.2f}s")
+
+        return text
+
+    except Exception as e:
+        logger.error(f"HuggingFace inference error: {e}", exc_info=True)
+        return (
+            "TYLER: Uh… something went wrong on our end.\n\n"
+            "SASHA: The broadcast feed dropped. Try again."
+        )
+
+
+# =========================================================
+# 10. CSS
+# =========================================================
+CSS = """
+<style>
+/* ============================================================
+ * MILANO CORTINA 2026 - OLYMPIC BRAND THEME
+ *
+ * Palette pulled from olympics.com Milano Cortina brand page:
+ *   #0A1929  Deep Navy      - hero bg, primary text
+ *   #00818A  Teal           - brand accent, gradient anchor
+ *   #0033A0  Olympic Blue   - links, borders
+ *   #006B3F  Forest Green   - Sasha accent
+ *   #F4F7F8  Ice            - page background
+ *   #FFFFFF  White          - cards, surfaces
+ *   #E8ECEE  Frost          - dividers
+ *   #6B7B8D  Slate          - captions, meta
+ *
+ * Tricolore: #009246 | #FFFFFF | #CE2B37
+ * ============================================================ */
+
+/* -- global -- */
+/* Three layered ridgelines at low opacity - atmospheric mountain texture */
+body, .stApp {
+    background-color: #F4F7F8;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 1440 400' preserveAspectRatio='xMidYMax slice'%3E%3Cpath fill='%230A1929' fill-opacity='0.04' d='M0,320 L120,260 L200,290 L340,200 L420,240 L520,180 L600,220 L720,150 L800,190 L920,120 L1000,170 L1100,100 L1200,160 L1300,130 L1440,180 L1440,400 L0,400 Z'/%3E%3Cpath fill='%230A1929' fill-opacity='0.055' d='M0,350 L80,310 L180,340 L280,280 L380,320 L460,260 L560,300 L680,240 L760,275 L860,220 L960,260 L1060,210 L1160,250 L1260,200 L1360,240 L1440,220 L1440,400 L0,400 Z'/%3E%3Cpath fill='%230A1929' fill-opacity='0.07' d='M0,370 L100,345 L200,365 L320,330 L400,355 L500,315 L600,350 L720,310 L820,340 L940,290 L1040,330 L1160,280 L1260,320 L1360,285 L1440,310 L1440,400 L0,400 Z'/%3E%3C/svg%3E");
+    background-repeat: no-repeat;
+    background-position: bottom center;
+    background-size: 100% 420px;
+    color: #0A1929;
+    font-family: 'Georgia', serif;
+}
+.block-container {
+    padding-top: 0 !important;
+    padding-bottom: 2rem !important;
+    max-width: 1320px !important;
+}
+
+/* -- hero header -- */
+.header-band {
+    background: linear-gradient(160deg, #0A1929 0%, #0D2540 55%, #112E4E 100%);
+    padding: 2.6rem 1.2rem 2.2rem;
+    text-align: center;
+    position: relative;
+    overflow: hidden;
+}
+/* subtle radial glow - gives depth like the brand page hero */
+.header-band::before {
+    content: '';
+    position: absolute;
+    top: -40%; left: 50%;
+    transform: translateX(-50%);
+    width: 140%; height: 140%;
+    background: radial-gradient(ellipse at center, rgba(0,129,138,0.12) 0%, transparent 70%);
+    pointer-events: none;
+}
+/* tricolore stripe at the very bottom */
+.header-band::after {
+    content: '';
+    position: absolute;
+    bottom: 0; left: 0; right: 0;
+    height: 4px;
+    background: linear-gradient(90deg,
+        #009246 0%, #009246 33.33%,
+        #FFFFFF 33.33%, #FFFFFF 66.66%,
+        #CE2B37 66.66%, #CE2B37 100%
+    );
+}
+.header-band h1 {
+    margin: 0;
+    font-size: 2.3rem;
+    font-weight: 700;
+    color: #FFFFFF;
+    letter-spacing: 0.07em;
+    text-transform: uppercase;
+    position: relative;
+}
+/* "MILAN 2026" gets the teal-to-blue gradient text */
+.header-band h1 .blue {
+    background: linear-gradient(90deg, #00818A 0%, #40A8B5 50%, #5BB8C3 100%);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+}
+.header-band .tagline {
+    color: rgba(255,255,255,0.5);
+    font-size: 0.88rem;
+    margin-top: 0.5rem;
+    font-style: italic;
+    position: relative;
+}
+
+/* -- post-header breathing room -- */
+.gap-below-header { height: 2.2rem; }
+
+/* -- buttons base -- */
+.stButton button {
+    font-family: 'Segoe UI', system-ui, sans-serif !important;
+    font-size: 0.74rem !important;
+    font-weight: 600 !important;
+    border-radius: 8px !important;
+    min-height: 44px !important;
+    padding: 0.5rem 0.7rem !important;
+    cursor: pointer !important;
+    transition: all 0.2s ease !important;
+    background: #FFFFFF !important;
+    border: 1.5px solid #E8ECEE !important;
+    color: #0A1929 !important;
+}
+.stButton button:hover {
+    border-color: #00818A !important;
+    color: #00818A !important;
+    background: #F0FAFA !important;
+}
+.stButton button:focus-visible {
+    outline: 3px solid #00818A !important;
+    outline-offset: 2px !important;
+}
+
+/* -- suggestion pills - teal gradient fill -- */
+.try-label { display: block; }
+
+[data-testid="column"] .try-label ~ * .stButton button,
+[data-testid="stColumn"] .try-label ~ * .stButton button {
+    background: linear-gradient(135deg, #00818A 0%, #0066B2 100%) !important;
+    border: none !important;
+    color: #FFFFFF !important;
+    box-shadow: 0 3px 10px rgba(0,129,138,0.35) !important;
+}
+[data-testid="column"] .try-label ~ * .stButton button:hover,
+[data-testid="stColumn"] .try-label ~ * .stButton button:hover {
+    background: linear-gradient(135deg, #006B75 0%, #00508F 100%) !important;
+    box-shadow: 0 4px 14px rgba(0,129,138,0.45) !important;
+    transform: translateY(-1px) !important;
+}
+
+/* -- "Try asking" label -- */
+.try-label {
+    color: #6B7B8D;
+    font-size: 0.7rem;
+    font-weight: 600;
+    font-family: 'Segoe UI', system-ui, sans-serif;
+    margin-bottom: 0.45rem !important;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+}
+
+/* -- chat bubbles -- */
+.bubble {
+    border-radius: 10px;
+    padding: 0.9rem 1rem;
+    margin-bottom: 0.6rem;
+    line-height: 1.6;
+    animation: fadeUp 0.25s ease;
+    color: #0A1929;
+    font-size: 0.9rem;
+}
+@keyframes fadeUp {
+    from { opacity: 0; transform: translateY(5px); }
+    to   { opacity: 1; transform: translateY(0); }
+}
+.bubble-tyler {
+    background: #EEF5FF;
+    border-left: 4px solid #0033A0;
+}
+.bubble-sasha {
+    background: #EDF7F1;
+    border-left: 4px solid #006B3F;
+}
+.bubble .speaker {
+    font-weight: 700;
+    font-size: 0.68rem;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    margin-bottom: 0.22rem;
+    font-family: 'Segoe UI', system-ui, sans-serif;
+}
+.bubble-tyler .speaker { color: #0033A0; }
+.bubble-sasha .speaker { color: #006B3F; }
+
+/* -- user bubble -- */
+.user-bubble {
+    background: #FFFFFF;
+    border-radius: 8px;
+    border-right: 3px solid #00818A;
+    padding: 0.5rem 0.85rem;
+    margin-bottom: 0.2rem;
+    text-align: right;
+    color: #0A1929;
+    font-size: 0.87rem;
+    font-family: 'Segoe UI', system-ui, sans-serif;
+    box-shadow: 0 1px 4px rgba(0,0,0,0.07);
+}
+.user-meta {
+    color: #6B7B8D;
+    font-size: 0.67rem;
+    text-align: right;
+    margin-bottom: 0.14rem;
+    font-family: 'Segoe UI', system-ui, sans-serif;
+}
+
+/* -- turn divider -- */
+.turn-divider {
+    border: none;
+    border-top: 1px solid #E8ECEE;
+    margin: 1rem 0;
+}
+
+/* -- selectbox -- */
+.stSelectbox [data-baseweb="select"] {
+    font-family: 'Segoe UI', system-ui, sans-serif !important;
+    font-size: 0.78rem !important;
+    font-weight: 600 !important;
+    color: #0A1929 !important;
+    background: #FFFFFF !important;
+    border: 1.5px solid #E8ECEE !important;
+    border-radius: 6px !important;
+    min-height: 38px !important;
+    cursor: pointer !important;
+}
+.stSelectbox [data-baseweb="select"]:hover { border-color: #00818A !important; }
+.stSelectbox [data-baseweb="select"]:focus-within {
+    border-color: #00818A !important;
+    box-shadow: 0 0 0 2px rgba(0,129,138,0.18) !important;
+}
+[data-baseweb="menu"] li {
+    font-family: 'Segoe UI', system-ui, sans-serif !important;
+    font-size: 0.78rem !important;
+    color: #0A1929 !important;
+}
+[data-baseweb="menu"] li:hover { background: #F0FAFA !important; }
+
+/* -- text input -- */
+.stTextInput input {
+    background: #FFFFFF !important;
+    border: 1.5px solid #E8ECEE !important;
+    color: #0A1929 !important;
+    border-radius: 8px !important;
+    font-size: 0.9rem !important;
+    min-height: 46px !important;
+    padding: 0 0.8rem !important;
+    font-family: 'Segoe UI', system-ui, sans-serif !important;
+    transition: border-color 0.2s, box-shadow 0.2s !important;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.05) !important;
+}
+.stTextInput input:focus {
+    border-color: #00818A !important;
+    box-shadow: 0 0 0 3px rgba(0,129,138,0.18) !important;
+    outline: none !important;
+}
+.stTextInput input::placeholder { color: #6B7B8D !important; }
+.stTextInput label {
+    color: #6B7B8D !important;
+    font-size: 0.7rem !important;
+    font-weight: 600 !important;
+    font-family: 'Segoe UI', system-ui, sans-serif !important;
+    text-transform: uppercase !important;
+    letter-spacing: 0.06em !important;
+}
+
+/* -- countdown / competition day box -- */
+.info-day-box {
+    background: linear-gradient(145deg, #0A1929 0%, #00818A 100%);
+    border-radius: 12px;
+    padding: 1.6rem 1rem 1.4rem;
+    margin-bottom: 0;
+    text-align: center;
+    position: relative;
+    overflow: hidden;
+    box-shadow: 0 4px 18px rgba(0,129,138,0.25);
+}
+/* subtle inner glow */
+.info-day-box::before {
+    content: '';
+    position: absolute;
+    top: -30%; right: -20%;
+    width: 70%; height: 70%;
+    background: radial-gradient(circle, rgba(255,255,255,0.07) 0%, transparent 70%);
+    pointer-events: none;
+}
+.info-day-box .info-day-label {
+    font-family: 'Segoe UI', system-ui, sans-serif;
+    font-size: 0.65rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.14em;
+    color: rgba(255,255,255,0.6);
+    margin-bottom: 0.35rem;
+    position: relative;
+}
+.info-day-box .info-day-num {
+    font-family: 'Georgia', serif;
+    font-size: 2.6rem;
+    font-weight: 700;
+    color: #FFFFFF;
+    line-height: 1;
+    position: relative;
+}
+.info-day-box .info-day-date {
+    font-family: 'Segoe UI', system-ui, sans-serif;
+    font-size: 0.78rem;
+    color: rgba(255,255,255,0.7);
+    margin-top: 0.3rem;
+    position: relative;
+}
+
+/* -- info panel section gap -- */
+.info-section-gap { height: 1.4rem; }
+
+/* -- section headings -- */
+.sidebar-heading {
+    color: #0A1929;
+    font-size: 0.72rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    font-family: 'Segoe UI', system-ui, sans-serif;
+    border-bottom: 2px solid #00818A;
+    padding-bottom: 0.3rem;
+    margin-bottom: 0.6rem;
+}
+
+/* -- medal table -- */
+.medal-table {
+    width: 100%;
+    border-collapse: collapse;
+    border-radius: 10px;
+    overflow: hidden;
+    border: 1px solid #E8ECEE;
+    font-family: 'Segoe UI', system-ui, sans-serif;
+    box-shadow: 0 1px 4px rgba(0,0,0,0.06);
+}
+.medal-table thead tr {
+    background: linear-gradient(135deg, #0A1929, #112E4E);
+}
+.medal-th {
+    color: #FFFFFF;
+    font-size: 0.63rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    padding: 0.55rem 0.35rem;
+    text-align: center;
+    border-right: 1px solid rgba(255,255,255,0.1);
+}
+.medal-th:last-child { border-right: none; }
+.medal-th-country { text-align: left; padding-left: 0.55rem; color: rgba(255,255,255,0.85); }
+.medal-th-gold   { color: #F0C040; }
+.medal-th-silver { color: #C8D0D6; }
+.medal-th-bronze { color: #CD7F32; }
+.medal-th-total  { color: #FFFFFF; }
+
+.medal-table tbody tr {
+    background: #FFFFFF;
+    border-bottom: 1px solid #EEF1F2;
+    transition: background 0.15s;
+}
+.medal-table tbody tr:hover { background: #F0FAFA; }
+.medal-table tbody tr:last-child { border-bottom: none; }
+.medal-table tbody tr:nth-child(even) { background: #F8FAFB; }
+.medal-table tbody tr:nth-child(even):hover { background: #F0FAFA; }
+
+.medal-country {
+    font-size: 0.78rem;
+    font-weight: 600;
+    color: #0A1929;
+    padding: 0.5rem 0.55rem;
+    border-right: 1px solid #EEF1F2;
+}
+.medal-num {
+    font-size: 0.82rem;
+    font-weight: 700;
+    text-align: center;
+    color: #0A1929;
+    padding: 0.5rem 0.35rem;
+    border-right: 1px solid #EEF1F2;
+}
+.medal-num:last-child { border-right: none; }
+.medal-total { color: #00818A; }
+
+/* -- stat cards -- */
+.stat-row {
+    display: flex;
+    gap: 0.7rem;
+    margin-top: 0.1rem;
+}
+.stat-row .stat-card { flex: 1; margin-bottom: 0 !important; }
+.stat-card {
+    background: #FFFFFF;
+    border: 1.5px solid #E8ECEE;
+    border-radius: 10px;
+    padding: 0.7rem 0.4rem;
+    text-align: center;
+    box-shadow: 0 1px 4px rgba(0,0,0,0.05);
+}
+.stat-card .stat-val {
+    font-size: 1.5rem;
+    font-weight: 700;
+    color: #00818A;
+    font-family: 'Georgia', serif;
+}
+.stat-card .stat-label {
+    font-size: 0.6rem;
+    color: #6B7B8D;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    font-family: 'Segoe UI', system-ui, sans-serif;
+    margin-top: 0.12rem;
+}
+
+/* -- about text -- */
+.about-block {
+    font-family: 'Segoe UI', system-ui, sans-serif;
+    font-size: 0.82rem;
+    color: #0A1929;
+    line-height: 1.55;
+}
+.about-block .about-name { font-weight: 700; }
+.about-block .about-flag { font-size: 0.7rem; color: #6B7B8D; }
+.about-block .about-divider { color: #E8ECEE; margin: 0.5rem 0; }
+.about-block .about-stack { color: #6B7B8D; font-size: 0.76rem; margin-top: 0.4rem; }
+.about-block .about-stack strong { color: #0A1929; }
+
+/* -- conversation log -- */
+.conv-log {
+    background: #0A1929;
+    border-radius: 10px;
+    padding: 0.8rem 0.9rem;
+    margin-top: 0.3rem;
+    max-height: 240px;
+    overflow-y: auto;
+    font-family: 'Consolas', 'SF Mono', monospace;
+    font-size: 0.68rem;
+    line-height: 1.7;
+    color: rgba(255,255,255,0.75);
+}
+.conv-log .log-time {
+    color: #00818A;
+    margin-right: 0.4rem;
+}
+.conv-log .log-query {
+    color: #FFFFFF;
+    font-weight: 600;
+}
+.conv-log .log-speaker-tyler { color: #5BA3E8; }
+.conv-log .log-speaker-sasha { color: #5BD49A; }
+.conv-log .log-line { margin-bottom: 0.18rem; }
+
+/* -- dividers -- */
+hr { border: none; border-top: 1px solid #E8ECEE !important; margin: 0.8rem 0 !important; }
+
+/* -- scrollbar -- */
+::-webkit-scrollbar       { width: 5px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: #D0D8DE; border-radius: 3px; }
+::-webkit-scrollbar-thumb:hover { background: #00818A; }
+
+/* -- language toggle row -- */
+.lang-row {
+    display: flex;
+    gap: 0.5rem;
+    justify-content: center;
+    margin-top: 0.15rem;
+}
+.lang-btn {
+    flex: 1;
+    text-align: center;
+    padding: 0.45rem 0.2rem;
+    border-radius: 8px;
+    border: 1.5px solid #E8ECEE;
+    background: #FFFFFF;
+    cursor: pointer;
+    font-family: 'Segoe UI', system-ui, sans-serif;
+    font-size: 0.76rem;
+    font-weight: 600;
+    color: #0A1929;
+    transition: all 0.18s ease;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.05);
+    user-select: none;
+    -webkit-user-select: none;
+}
+.lang-btn:hover {
+    border-color: #00818A;
+    background: #F0FAFA;
+    color: #00818A;
+}
+.lang-btn.active {
+    background: linear-gradient(135deg, #0A1929 0%, #112E4E 100%);
+    border-color: #0A1929;
+    color: #FFFFFF;
+    box-shadow: 0 2px 8px rgba(10,25,41,0.25);
+}
+.lang-btn .lang-flag { display: block; font-size: 1.1rem; line-height: 1.2; }
+.lang-btn .lang-label { display: block; font-size: 0.62rem; margin-top: 0.1rem; letter-spacing: 0.04em; }
+
+/* -- hidden lang trigger buttons (clicked programmatically by .lang-btn JS) -- */
+div[data-testid="column"] > div > div > button[kind="secondary"] {
+    display: none !important;
+}
+.lang-triggers,
+.lang-triggers > div,
+.lang-triggers button {
+    height: 0 !important;
+    min-height: 0 !important;
+    padding: 0 !important;
+    margin: 0 !important;
+    border: none !important;
+    opacity: 0 !important;
+    pointer-events: none !important;
+    position: absolute !important;
+    left: -9999px !important;
+}
+
+/* -- Streamlit spinner tint -- */
+.stSpinner > div { border-color: #00818A !important; }
+</style>
+"""
+
+
+# =========================================================
+# 11. RENDER HELPERS
+# =========================================================
+def render_bubbles(response_text: str):
+    """
+    Parses model output into (speaker, body) pairs, enforces strict
+    Tyler/Sasha alternation (flips any consecutive duplicate), then
+    renders each as a styled chat bubble.
+
+    Handles two output formats:
+      Format A (ideal):  "TYLER: some dialogue here"
+      Format B (actual): flag emoji + name on its own line, dialogue on next
+    """
+    # -- Step 1: parse into (speaker, body) tuples --
+    lines = [l.strip() for l in response_text.split("\n")]
+    parsed = []                            # list of ("tyler"|"sasha", "body text")
+    current_speaker = None
+    current_body    = []
+
+    def commit():
+        if current_speaker and current_body:
+            parsed.append((current_speaker, " ".join(current_body)))
+
+    for line in lines:
+        if not line:
+            continue
+        upper = line.upper()
+        is_tyler = upper.startswith("TYLER")
+        is_sasha = upper.startswith("SASHA")
+
+        if is_tyler or is_sasha:
+            commit()
+            current_speaker = "tyler" if is_tyler else "sasha"
+            current_body = []
+            if ":" in line:
+                remainder = line.split(":", 1)[-1].strip()
+                if remainder:
+                    current_body.append(remainder)
+        else:
+            if current_speaker:
+                current_body.append(line)
+
+    commit()
+
+    # -- Step 2: enforce alternation --
+    # Flip any consecutive duplicate speaker to the other one
+    for i in range(1, len(parsed)):
+        if parsed[i][0] == parsed[i - 1][0]:
+            parsed[i] = ("sasha" if parsed[i][0] == "tyler" else "tyler", parsed[i][1])
+
+    # -- Step 3: render --
+    for speaker, body in parsed:
+        if speaker == "tyler":
+            st.markdown(
+                f'<div class="bubble bubble-tyler">'
+                f'<div class="speaker">USA Tyler</div>{body}</div>',
+                unsafe_allow_html=True
+            )
+        else:
+            st.markdown(
+                f'<div class="bubble bubble-sasha">'
+                f'<div class="speaker">RUS Sasha</div>{body}</div>',
+                unsafe_allow_html=True
+            )
+
+
+# =========================================================
+# 12. MAIN
+# =========================================================
 def main():
-    mode = resolve_mode()
-    log.info("=" * 60)
-    log.info("PIPELINE MODE: %s", mode)
-    log.info("run started: %s", datetime.now(timezone.utc).isoformat(timespec="seconds"))
-    log.info("=" * 60)
+    st.markdown(CSS, unsafe_allow_html=True)
 
-    if mode == "DORMANT":
-        log.info("DORMANT — exiting without updates")
-        return
+    # -- session init --
+    # Read language from query params if present
+    query_params = st.query_params
+    lang_from_url = query_params.get("lang", ["EN"])[0] if isinstance(query_params.get("lang"), list) else query_params.get("lang", "EN")
+    
+    if "lang" not in st.session_state:
+        st.session_state["lang"] = lang_from_url
+    elif lang_from_url and lang_from_url != st.session_state["lang"]:
+        # URL param overrides session state
+        st.session_state["lang"] = lang_from_url
+        
+    if "input_gen" not in st.session_state:
+        st.session_state[" input_gen"] = 0
+    if "history" not in st.session_state:
+        st.session_state["history"] = []
 
-    if _os.getenv("PINECONE_API_KEY"):
-        _init_pinecone()
-    else:
-        log.info("PINECONE_API_KEY not set — using in-memory store only")
+    active_lang = st.session_state["lang"]
 
-    entities = discover_entities(mode)
+    # -- dates --
+    today        = datetime.now()
+    games_start  = datetime(2026, 2, 6)
+    games_end    = datetime(2026, 2, 22, 23, 59)
+    during_games = games_start <= today <= games_end
 
-    # 1. Narratives
-    log.info("── narratives ──")
-    for page in entities["narratives"]:
-        text = fetch_page(page)
-        upsert_narrative(page, text)
-        time.sleep(0.1)
+    # -- hero header --
+    title_html = t("header_title").replace("MILAN 2026", '<span class="blue">MILAN 2026</span>')
+    st.markdown(
+        f'<div class="header-band">'
+        f'<h1>{title_html}</h1>'
+        f'<div class="tagline">{t("header_tagline")}</div>'
+        f'</div>',
+        unsafe_allow_html=True
+    )
+    # breathing room below tricolore stripe
+    st.markdown('<div class="gap-below-header"></div>', unsafe_allow_html=True)
 
-    # 2. Rumors
-    log.info("── rumors ──")
-    for rumor in entities["rumors"]:
-        fresh = fetch_rumor(rumor)
-        RUMORS_THIS_RUN.append(fresh)
-        upsert_rumor(fresh)
-        time.sleep(0.1)
+    # -- live data --
+    medal_df, medal_time, medal_err = fetch_live_medals()
 
-    # 3. Injuries
-    log.info("── injuries ──")
-    for injury in entities["injuries"]:
-        fresh = fetch_injury(injury)
-        upsert_injury(fresh)
-        time.sleep(0.1)
+    # -- two-column layout --
+    chat_col, info_col = st.columns([1.7, 1], gap="large")
 
-    # 4. Events (LIVE only)
-    if mode == "LIVE_GAMES":
-        log.info("── events ──")
-        for event_name in entities["events"]:
-            medalists = fetch_event_results(event_name)
-            upsert_event(event_name, medalists)
-            time.sleep(0.1)
+    # ═══════════════════════════════════════════════
+    # COLUMN 1 - CONVERSATION
+    # ═══════════════════════════════════════════════
+    with chat_col:
+        # suggestion pills
+        static_pills = t("suggestions_static")
+        pills = [(s, s) for s in static_pills]
+        if during_games:
+            pills.insert(2, (t("suggestion_schedule"),
+                             t("suggestion_schedule_query").format(date=today.strftime("%B %d"))))
+        else:
+            pills.insert(2, (t("suggestion_schedule_off"),
+                             t("suggestion_schedule_off")))
 
-    # 5. Athletes
-    log.info("── athletes ──")
-    for athlete in entities["athletes"]:
-        upsert_athlete(athlete)
-        time.sleep(0.1)
+        st.markdown(
+            f'<p class="try-label">{t("try_asking")}</p>',
+            unsafe_allow_html=True
+        )
+        pill_cols = st.columns(len(pills), gap="small")
+        for idx, (col, (label, query_text)) in enumerate(zip(pill_cols, pills)):
+            if col.button(label, use_container_width=True, key=f"pill_{idx}_{active_lang}_{st.session_state['input_gen']}"):
+                st.session_state["pending_query"] = query_text
+                st.session_state["input_gen"] += 1
+                st.rerun()
 
-    # 6. Upset detection (LIVE only)
-    if mode == "LIVE_GAMES":
-        detect_upsets()
+        pending = st.session_state.pop("pending_query", "")
 
-    # 7. Country upset detection (LIVE only)
-    if mode == "LIVE_GAMES":
-        detect_country_upsets()
+        input_key = f"main_input_{st.session_state['input_gen']}"
+        typed = st.text_input(
+            t("input_label"),
+            placeholder=t("input_placeholder"),
+            key=input_key,
+            value=pending,
+            max_chars=300
+        )
 
-    # Summary
-    summary = summarize_updates(UPDATED_VECTORS)
-    log.info("=" * 60)
-    log.info("UPDATE SUMMARY")
-    log.info("=" * 60)
-    for key, items in summary.items():
-        flag = "🚨" if key in ("upsets", "country_upsets") and items else "  "
-        log.info("%s %s (%d):", flag, key.upper(), len(items))
-        for item in items:
-            log.info("   - %s", item)
+        query = pending if pending else typed
 
-    log.info("total vectors touched: %d", len(UPDATED_VECTORS))
-    log.info("pipeline run complete")
+        if query and query.strip():
+            log_and_show("info", f"Query [{active_lang}]: {query}")
+            with st.spinner(t("spinner_text")):
+                matches      = retrieve_context(query, top_k=7)
+                log_and_show("info", f"Retrieved {len(matches)} chunks")
+                context_text = format_context_for_llm(matches, medal_df)
+
+                # Smart schedule injection: pull schedule text from already-retrieved chunks
+                schedule_context = None
+                query_lower = query.lower()
+                asks_about_schedule = any(kw in query_lower for kw in ["schedule", "when", "what's on", "coming up", "events", "today", "tomorrow"])
+
+                if asks_about_schedule:
+                    # Extract text from chunks that came back from the "schedules" namespace
+                    schedule_texts = [
+                        m.get("metadata", {}).get("text", "")
+                        for m in matches
+                        if m.get("metadata", {}).get("_namespace") == "schedules"
+                    ]
+                    schedule_text = "\n".join(schedule_texts).strip()
+
+                    if schedule_text:
+                        if not during_games:
+                            # PRE-GAMES: Focus on Opening Ceremony + first weekend
+                            schedule_lines = schedule_text.split('\n')
+                            opening_and_first_weekend = [line for line in schedule_lines if any(kw in line.lower() for kw in
+                                ["opening ceremony", "february 6", "february 7", "february 8", "february 9", "feb 6", "feb 7", "feb 8", "feb 9"])]
+                            if opening_and_first_weekend:
+                                schedule_context = "\n\n[UPCOMING EVENTS - Opening Ceremony + First Weekend]\n" + "\n".join(opening_and_first_weekend[:10])
+                            else:
+                                # No opening/first-weekend lines but we have schedule data - use it all
+                                schedule_context = "\n\n[UPCOMING EVENTS]\n" + schedule_text
+                        else:
+                            # DURING GAMES: Focus on today + tomorrow
+                            today_str = today.strftime("%B %d").replace(" 0", " ")
+                            tomorrow = today + pd.Timedelta(days=1)
+                            tomorrow_str = tomorrow.strftime("%B %d").replace(" 0", " ")
+
+                            schedule_lines = schedule_text.split('\n')
+                            today_tomorrow = [line for line in schedule_lines if today_str in line or tomorrow_str in line]
+                            if today_tomorrow:
+                                schedule_context = f"\n\n[TODAY'S EVENTS - {today_str}]\n" + "\n".join(today_tomorrow[:15])
+                            else:
+                                # Have schedule data but nothing for today/tomorrow - include what we have
+                                schedule_context = "\n\n[UPCOMING EVENTS]\n" + schedule_text
+
+                if schedule_context:
+                    context_text += schedule_context
+
+                response     = generate_response(query, context_text, active_lang, st.session_state.get("heat", 1))
+                log_and_show("info", "Response generated.")
+
+            st.session_state["history"].append({
+                "query":    query,
+                "response": response,
+                "time":     datetime.now().strftime("%I:%M %p"),
+                "chunks":   len(matches),
+                "lang":     active_lang
+            })
+
+            if pending:
+                st.session_state["input_gen"] += 1
+                st.rerun()
+
+        # chat history (newest first)
+        for turn in reversed(st.session_state.get("history", [])):
+            st.markdown(
+                f'<div class="user-meta">🕐 {turn["time"]} · {turn["lang"]}</div>',
+                unsafe_allow_html=True
+            )
+            st.markdown(
+                f'<div class="user-bubble">{turn["query"]}</div>',
+                unsafe_allow_html=True
+            )
+            render_bubbles(turn["response"])
+            st.markdown('<hr class="turn-divider">', unsafe_allow_html=True)
+
+        # -- conversation log (terminal-style replay) --
+        history = st.session_state.get("history", [])
+        if history:
+            log_html = '<div class="conv-log">'
+            for turn in history:   # oldest first for a log feel
+                log_html += (
+                    f'<div class="log-line">'
+                    f'<span class="log-time">🕐 {turn["time"]} · {turn["lang"]}</span>'
+                    f'<span class="log-query">{turn["query"]}</span>'
+                    f'</div>'
+                )
+                # replay each bubble as a log line
+                lines = [l.strip() for l in turn["response"].split("\n") if l.strip()]
+                current_speaker = None
+                current_body = []
+
+                def flush_log():
+                    nonlocal log_html
+                    if current_speaker and current_body:
+                        cls = "log-speaker-tyler" if current_speaker == "tyler" else "log-speaker-sasha"
+                        flag = "USA" if current_speaker == "tyler" else "RUS"
+                        name = "Tyler" if current_speaker == "tyler" else "Sasha"
+                        log_html += (
+                            f'<div class="log-line">'
+                            f'<span class="{cls}">{flag} {name}:</span> {" ".join(current_body)}'
+                            f'</div>'
+                        )
+
+                for line in lines:
+                    upper = line.upper()
+                    is_tyler = upper.startswith("TYLER")
+                    is_sasha = upper.startswith("SASHA")
+                    if is_tyler or is_sasha:
+                        flush_log()
+                        current_speaker = "tyler" if is_tyler else "sasha"
+                        current_body = []
+                        if ":" in line:
+                            remainder = line.split(":", 1)[-1].strip()
+                            if remainder:
+                                current_body.append(remainder)
+                    else:
+                        if current_speaker:
+                            current_body.append(line)
+                flush_log()
+
+            log_html += '</div>'
+
+            with st.expander("📋 Conversation Log", expanded=False):
+                st.markdown(log_html, unsafe_allow_html=True)
+
+    # ═══════════════════════════════════════════════
+    # COLUMN 2 — INFO PANEL
+    # ═══════════════════════════════════════════════
+    with info_col:
+
+        # ── Heat Slider (MOVED TO TOP) ──
+        st.markdown('<div class="sidebar-heading">🔥 Rivalry Heat</div>', unsafe_allow_html=True)
+        heat_labels = {1: "1 — Simmering", 2: "2 — Tension", 3: "3 — Sparring", 4: "4 — Heated", 5: "5 — Bloodsport"}
+        current_heat = st.session_state.get("heat", 1)
+        heat_val = st.slider(
+            "Rivalry Heat",
+            min_value=1,
+            max_value=5,
+            value=current_heat,
+            step=1,
+            key="heat_slider",
+            label_visibility="collapsed"
+        )
+        st.caption(heat_labels[heat_val])
+        if heat_val != current_heat:
+            st.session_state["heat"] = heat_val
+
+        # gap
+        st.markdown('<div class="info-section-gap"></div>', unsafe_allow_html=True)
+
+        # ── Language toggle (flag buttons) ──
+        st.markdown('<div class="sidebar-heading">🌍 Language</div>', unsafe_allow_html=True)
+        LANG_DEFS = [
+            ("EN", "🇬🇧", "English"),
+            ("FR", "🇫🇷", "Français"),
+            ("IT", "🇮🇹", "Italiano"),
+        ]
+        lang_btns_html = '<div class="lang-row">'
+        for code, flag, label in LANG_DEFS:
+            active_cls = " active" if code == active_lang else ""
+            lang_btns_html += (
+                f'<div class="lang-btn{active_cls}" '
+                f'data-lang="{code}">'
+                f'<span class="lang-flag">{flag}</span>'
+                f'<span class="lang-label">{label}</span>'
+                f'</div>'
+            )
+        lang_btns_html += '</div>'
+        st.markdown(lang_btns_html, unsafe_allow_html=True)
+
+        # Language switching - NO visible Streamlit buttons needed
+        # The flag buttons update session state directly via JavaScript
+        st.markdown("""
+        <script>
+        (function() {
+            function wireLangButtons() {
+                var btns = document.querySelectorAll('.lang-btn');
+                if (btns.length === 0) {
+                    setTimeout(wireLangButtons, 150);
+                    return;
+                }
+                
+                btns.forEach(function(btn) {
+                    btn.addEventListener('click', function() {
+                        var lang = btn.getAttribute('data-lang');
+                        
+                        // Force page reload with lang query param
+                        var url = new URL(window.location);
+                        url.searchParams.set('lang', lang);
+                        window.location.href = url.toString();
+                    });
+                });
+            }
+            wireLangButtons();
+        })();
+        </script>
+        """, unsafe_allow_html=True)
+
+        # gap
+        st.markdown('<div class="info-section-gap"></div>', unsafe_allow_html=True)
+
+        # ── Competition Day / Countdown ──
+        if during_games:
+            day_num  = (today - games_start).days + 1
+            date_str = today.strftime("%A, %B %d")
+            st.markdown(
+                f'<div class="info-day-box">'
+                f'<div class="info-day-label">Competition Day</div>'
+                f'<div class="info-day-num">Day {day_num}</div>'
+                f'<div class="info-day-date">{date_str}</div>'
+                f'</div>',
+                unsafe_allow_html=True
+            )
+        elif today < games_start:
+            countdown = (games_start - today).days
+            st.markdown(
+                f'<div class="info-day-box">'
+                f'<div class="info-day-label">Milano Cortina 2026</div>'
+                f'<div class="info-day-num">{countdown} days</div>'
+                f'<div class="info-day-date">Until the Games begin</div>'
+                f'</div>',
+                unsafe_allow_html=True
+            )
+        else:
+            st.markdown(
+                f'<div class="info-day-box">'
+                f'<div class="info-day-label">Milano Cortina 2026</div>'
+                f'<div class="info-day-num">Finished</div>'
+                f'<div class="info-day-date">Feb 6 – Feb 22, 2026</div>'
+                f'</div>',
+                unsafe_allow_html=True
+            )
+
+        # gap before medal table
+        st.markdown('<div class="info-section-gap"></div>', unsafe_allow_html=True)
+
+        # ── Medal Standings + Stats (only during games) ──
+        if during_games:
+            st.markdown(f'<div class="sidebar-heading">🏅 {t("standings_title")}</div>', unsafe_allow_html=True)
+
+            if medal_df is not None and not medal_df.empty:
+            col_map = {}
+            for c in medal_df.columns:
+                cl = str(c).lower().strip()
+                if cl in ("nation", "country", "noc", "nations"): col_map[c] = "Country"
+                elif cl == "gold":   col_map[c] = "Gold"
+                elif cl == "silver": col_map[c] = "Silver"
+                elif cl == "bronze": col_map[c] = "Bronze"
+                elif cl == "total":  col_map[c] = "Total"
+            medal_df = medal_df.rename(columns=col_map)
+
+            keep = [c for c in ["Country", "Gold", "Silver", "Bronze", "Total"] if c in medal_df.columns]
+            if "Country" in medal_df.columns:
+                mask = medal_df["Country"].astype(str).apply(
+                    lambda x: (
+                        x.strip() != "" and
+                        not x.strip()[0].isdigit() and
+                        "total" not in x.lower() and
+                        "neutral" not in x.lower() and
+                        "ain" != x.strip().lower()
+                    )
+                )
+                medal_df = medal_df.loc[mask].reset_index(drop=True)
+            top3 = medal_df[keep].head(3).reset_index(drop=True)
+
+            rows_html = ""
+            for i, row in top3.iterrows():
+                country = str(row.get("Country", "-"))
+                gold   = str(int(row["Gold"])) if "Gold" in row else "-"
+                silver = str(int(row["Silver"])) if "Silver" in row else "-"
+                bronze = str(int(row["Bronze"])) if "Bronze" in row else "-"
+                total  = str(int(row["Total"])) if "Total" in row else "-"
+                rows_html += (
+                    f'<tr>'
+                    f'<td class="medal-country">{country}</td>'
+                    f'<td class="medal-num">{gold}</td>'
+                    f'<td class="medal-num">{silver}</td>'
+                    f'<td class="medal-num">{bronze}</td>'
+                    f'<td class="medal-num medal-total">{total}</td>'
+                    f'</tr>'
+                )
+
+            table_html = (
+                '<table class="medal-table">'
+                '<thead><tr>'
+                '<th class="medal-th medal-th-country">Country</th>'
+                '<th class="medal-th medal-th-gold">🥇</th>'
+                '<th class="medal-th medal-th-silver">🥈</th>'
+                '<th class="medal-th medal-th-bronze">🥉</th>'
+                '<th class="medal-th medal-th-total">Total</th>'
+                '</tr></thead>'
+                f'<tbody>{rows_html}</tbody>'
+                '</table>'
+            )
+            st.markdown(table_html, unsafe_allow_html=True)
+        else:
+            st.caption(medal_err or t("games_not_started"))
+
+        # gap
+        st.markdown('<div class="info-section-gap"></div>', unsafe_allow_html=True)
+
+        # ── Medals Awarded + Athletes Tracked (only during games) ──
+        if during_games:
+            total_medals = "—"
+            if medal_df is not None and not medal_df.empty:
+                for cn in ["Total", "total"]:
+                    if cn in medal_df.columns:
+                        try:
+                            total_medals = f"{medal_df[cn].sum():,}"
+                        except Exception:
+                            pass
+                        break
+
+            st.markdown(
+                f'<div class="stat-row">'
+                f'<div class="stat-card">'
+                f'<div class="stat-val">{total_medals}</div>'
+                f'<div class="stat-label">{t("medals_label")}</div></div>'
+                f'<div class="stat-card">'
+                f'<div class="stat-val">407</div>'
+                f'<div class="stat-label">{t("athletes_label")}</div></div>'
+                f'</div>',
+                unsafe_allow_html=True
+            )
+
+            # gap
+            st.markdown('<div class="info-section-gap"></div>', unsafe_allow_html=True)
+
+        # ── About ──
+        st.markdown(f'<div class="sidebar-heading">{t("about_title")}</div>', unsafe_allow_html=True)
+        st.markdown(
+            '<div class="about-block">'
+            '<span class="about-name">Tyler</span> <span class="about-flag">USA — 2018 Bronze · Figure Skating</span><br>'
+            '<span class="about-name">Sasha</span> <span class="about-flag">RUS — 2014 & 2018 Silver · Figure Skating</span>'
+            '<div class="about-divider">—</div>'
+            'Rivals 2014–2018. Now partners. It\'s complicated.'
+            '<div class="about-stack"><strong>Stack:</strong> Pinecone · Sentence Transformers · Wikipedia</div>'
+            '</div>',
+            unsafe_allow_html=True
+        )
+
+
 
 if __name__ == "__main__":
     main()
