@@ -304,17 +304,15 @@ STRICT RULES - every single one applies:
 - No summary or sign-off line. End on a natural conversational beat, not a wrap-up.
 
 RULES
-- **WINTER OLYMPICS ONLY**: This is the MILAN 2026 WINTER OLYMPICS. NEVER mention summer sports, Paris 2024, or any summer Olympic events. Do NOT discuss the Seine River, Eiffel Tower, Celine Dion at Paris ceremonies, or any Paris 2024 Opening Ceremony content. If asked about these, redirect to Milan 2026 winter sports only.
 - Use ONLY retrieved context. Do not invent athletes, results, dates, or event schedules.
 - ATHLETE ACCURACY: If an athlete's discipline/partner is in the retrieved chunks, use it EXACTLY. Never change disciplines (e.g., if someone is "Men's Singles", do not say "pairs").
 - FIGURE SKATING STARS: Ilia Malinin is "The Quad God" who landed the first quad Axel. Always mention him for figure skating queries.
 - SCHEDULE DATES: If you see chunks labeled "SCHEDULE: [event] on [date]" or "[TODAY'S EVENTS]", use EXACTLY those dates. Do NOT change, guess, or invent any dates.
-- If asked about upcoming events and NO SCHEDULE chunks are in context, have Tyler admit he doesn't have the schedule handy and Sasha confirm there are no confirmed dates yet. Do NOT copy or echo any instruction text literally - respond naturally in character.
-- If no context is available at all for a question, have Tyler express uncertainty and Sasha briefly confirm they have nothing to say on it. Keep it natural and in character.
+- If asked about upcoming events and NO SCHEDULE chunks are in context, do NOT guess or make up dates. Instead: Tyler: "Uh, I actually don't have the schedule in front of me right now." / Sasha: "We don't have confirmed dates yet. Check back closer to game day."
+- No context available at all? Tyler: "Uh..." / Sasha: "We have nothing on this."
 - Tyler embellishes personality. Sasha sticks to facts.
 - Reference [LIVE MEDAL STANDINGS] for medal counts. Reference [UPCOMING EVENTS] or [TODAY'S EVENTS] for schedule data. Never invent either.
 - Fun entertainment, not a textbook.
-- CRITICAL: Never output instruction text, fallback templates, or prompt fragments as part of your dialogue. Every line must be natural spoken dialogue only.
 """
 
 
@@ -463,43 +461,13 @@ def retrieve_context(query: str, top_k: int = 7) -> list:
 
 
 def format_context_for_llm(matches: list, medal_df) -> str:
-    """
-    Format retrieved chunks for LLM context, filtering out any summer Olympics content.
-    """
-    # Keywords that indicate summer Olympics content to exclude
-    summer_keywords = [
-        'paris 2024', 'paris2024', 'summer olympics', 'summer games',
-        'swimming', 'gymnastics', 'track and field', 'athletics', 
-        'diving', 'rowing', 'sailing', 'basketball', 'volleyball',
-        'soccer', 'football', 'tennis', 'boxing', 'wrestling',
-        'judo', 'taekwondo', 'fencing', 'archery', 'shooting',
-        'cycling', 'triathlon', 'marathon', 'sprinting',
-        # Paris 2024 Opening Ceremony specific
-        'seine river', 'river seine', 'eiffel tower', 'eiffel', 
-        'celine dion', 'lady gaga', 'paris opening ceremony',
-        'seine ceremony', 'paris ceremony', 'boat parade',
-        'floating stage', 'trocadero'
-    ]
-    
-    parts = ["[RETRIEVED CONTEXT - MILAN 2026 WINTER OLYMPICS ONLY]"]
-    chunk_num = 1
-    
+    parts = ["[RETRIEVED CONTEXT]"]
     for i, m in enumerate(matches, 1):
         meta  = m.get("metadata", {})
         text  = meta.get("text", "")
         dtype = meta.get("doc_type", "?")
         score = m.get("score", 0)
-        
-        # Check if this chunk contains summer Olympics content
-        text_lower = text.lower()
-        is_summer = any(keyword in text_lower for keyword in summer_keywords)
-        
-        if is_summer:
-            logger.info(f"  [FILTERED] Chunk {i} contains summer Olympics content - excluding")
-            continue
-        
-        parts.append(f"\n--- Chunk {chunk_num} (type={dtype}, relevance={score:.2f}) ---\n{text}")
-        chunk_num += 1
+        parts.append(f"\n--- Chunk {i} (type={dtype}, relevance={score:.2f}) ---\n{text}")
 
     if medal_df is not None and not medal_df.empty:
         parts.append("\n\n[LIVE MEDAL STANDINGS - current]")
@@ -528,14 +496,14 @@ def generate_response(user_query: str, context_text: str, lang: str, heat: int =
     t0 = time.time()
     try:
         messages = [
-            {"role": "system", "content": build_system_prompt(lang, heat)},
+            {"role": "system", "content": build_system_prompt(lang)},
             {"role": "user",   "content": f"{context_text}\n\n[USER QUESTION]\n{user_query}"}
         ]
 
         output = hf_client.chat_completion(
             messages=messages,
             max_tokens=500,
-            temperature=0.7,  # fixed — higher temps at heat 3-5 introduced hallucinations
+            temperature=get_temperature(heat),
             top_p=0.9
         )
 
@@ -1019,62 +987,6 @@ hr { border: none; border-top: 1px solid #E8ECEE !important; margin: 0.8rem 0 !i
 ::-webkit-scrollbar-thumb { background: #D0D8DE; border-radius: 3px; }
 ::-webkit-scrollbar-thumb:hover { background: #00818A; }
 
-/* -- language toggle row -- */
-.lang-row {
-    display: flex;
-    gap: 0.5rem;
-    justify-content: center;
-    margin-top: 0.15rem;
-}
-.lang-btn {
-    flex: 1;
-    text-align: center;
-    padding: 0.45rem 0.2rem;
-    border-radius: 8px;
-    border: 1.5px solid #E8ECEE;
-    background: #FFFFFF;
-    cursor: pointer;
-    font-family: 'Segoe UI', system-ui, sans-serif;
-    font-size: 0.76rem;
-    font-weight: 600;
-    color: #0A1929;
-    transition: all 0.18s ease;
-    box-shadow: 0 1px 3px rgba(0,0,0,0.05);
-    user-select: none;
-    -webkit-user-select: none;
-}
-.lang-btn:hover {
-    border-color: #00818A;
-    background: #F0FAFA;
-    color: #00818A;
-}
-.lang-btn.active {
-    background: linear-gradient(135deg, #0A1929 0%, #112E4E 100%);
-    border-color: #0A1929;
-    color: #FFFFFF;
-    box-shadow: 0 2px 8px rgba(10,25,41,0.25);
-}
-.lang-btn .lang-flag { display: block; font-size: 1.1rem; line-height: 1.2; }
-.lang-btn .lang-label { display: block; font-size: 0.62rem; margin-top: 0.1rem; letter-spacing: 0.04em; }
-
-/* -- hidden lang trigger buttons (clicked programmatically by .lang-btn JS) -- */
-div[data-testid="column"] > div > div > button[kind="secondary"] {
-    display: none !important;
-}
-.lang-triggers,
-.lang-triggers > div,
-.lang-triggers button {
-    height: 0 !important;
-    min-height: 0 !important;
-    padding: 0 !important;
-    margin: 0 !important;
-    border: none !important;
-    opacity: 0 !important;
-    pointer-events: none !important;
-    position: absolute !important;
-    left: -9999px !important;
-}
-
 /* -- Streamlit spinner tint -- */
 .stSpinner > div { border-color: #00818A !important; }
 </style>
@@ -1153,15 +1065,13 @@ def render_bubbles(response_text: str):
 def main():
     st.markdown(CSS, unsafe_allow_html=True)
 
-    # ── session init ──
+    # -- session init --
     if "lang" not in st.session_state:
         st.session_state["lang"] = "EN"
     if "input_gen" not in st.session_state:
         st.session_state["input_gen"] = 0
     if "history" not in st.session_state:
         st.session_state["history"] = []
-    if "heat" not in st.session_state:
-        st.session_state["heat"] = 1
 
     active_lang = st.session_state["lang"]
 
@@ -1208,10 +1118,9 @@ def main():
             unsafe_allow_html=True
         )
         pill_cols = st.columns(len(pills), gap="small")
-        for idx, (col, (label, query_text)) in enumerate(zip(pill_cols, pills)):
-            if col.button(label, use_container_width=True, key=f"pill_{idx}_{active_lang}_{st.session_state['input_gen']}"):
+        for col, (label, query_text) in zip(pill_cols, pills):
+            if col.button(label, use_container_width=True, key=f"pill_{hash(label)}_{active_lang}"):
                 st.session_state["pending_query"] = query_text
-                st.session_state["input_gen"] += 1
                 st.rerun()
 
         pending = st.session_state.pop("pending_query", "")
@@ -1233,49 +1142,34 @@ def main():
                 matches      = retrieve_context(query, top_k=7)
                 log_and_show("info", f"Retrieved {len(matches)} chunks")
                 context_text = format_context_for_llm(matches, medal_df)
-
-                # Smart schedule injection: pull schedule text from already-retrieved chunks
+                
+                # Smart schedule injection based on query and game status
                 schedule_context = None
                 query_lower = query.lower()
                 asks_about_schedule = any(kw in query_lower for kw in ["schedule", "when", "what's on", "coming up", "events", "today", "tomorrow"])
-
-                if asks_about_schedule:
-                    # Extract text from chunks that came back from the "schedules" namespace
-                    schedule_texts = [
-                        m.get("metadata", {}).get("text", "")
-                        for m in matches
-                        if m.get("metadata", {}).get("_namespace") == "schedules"
-                    ]
-                    schedule_text = "\n".join(schedule_texts).strip()
-
-                    if schedule_text:
-                        if not during_games:
-                            # PRE-GAMES: Focus on Opening Ceremony + first weekend
-                            schedule_lines = schedule_text.split('\n')
-                            opening_and_first_weekend = [line for line in schedule_lines if any(kw in line.lower() for kw in
-                                ["opening ceremony", "february 6", "february 7", "february 8", "february 9", "feb 6", "feb 7", "feb 8", "feb 9"])]
-                            if opening_and_first_weekend:
-                                schedule_context = "\n\n[UPCOMING EVENTS - Opening Ceremony + First Weekend]\n" + "\n".join(opening_and_first_weekend[:10])
-                            else:
-                                # No opening/first-weekend lines but we have schedule data - use it all
-                                schedule_context = "\n\n[UPCOMING EVENTS]\n" + schedule_text
-                        else:
-                            # DURING GAMES: Focus on today + tomorrow
-                            today_str = today.strftime("%B %d").replace(" 0", " ")
-                            tomorrow = today + pd.Timedelta(days=1)
-                            tomorrow_str = tomorrow.strftime("%B %d").replace(" 0", " ")
-
-                            schedule_lines = schedule_text.split('\n')
-                            today_tomorrow = [line for line in schedule_lines if today_str in line or tomorrow_str in line]
-                            if today_tomorrow:
-                                schedule_context = f"\n\n[TODAY'S EVENTS - {today_str}]\n" + "\n".join(today_tomorrow[:15])
-                            else:
-                                # Have schedule data but nothing for today/tomorrow - include what we have
-                                schedule_context = "\n\n[UPCOMING EVENTS]\n" + schedule_text
-
+                
+                if asks_about_schedule and schedule_text:
+                    if not during_games:
+                        # PRE-GAMES: Focus on Opening Ceremony + first weekend
+                        schedule_lines = schedule_text.split('\n')
+                        opening_and_first_weekend = [line for line in schedule_lines if any(kw in line.lower() for kw in 
+                            ["opening ceremony", "february 6", "february 7", "february 8", "february 9", "feb 6", "feb 7", "feb 8", "feb 9"])]
+                        if opening_and_first_weekend:
+                            schedule_context = "\n\n[UPCOMING EVENTS - Opening Ceremony + First Weekend]\n" + "\n".join(opening_and_first_weekend[:10])
+                    else:
+                        # DURING GAMES: Focus on today + tomorrow
+                        today_str = today.strftime("%B %d").replace(" 0", " ")  # "February 7" not "February 07"
+                        tomorrow = today + pd.Timedelta(days=1)
+                        tomorrow_str = tomorrow.strftime("%B %d").replace(" 0", " ")
+                        
+                        schedule_lines = schedule_text.split('\n')
+                        today_tomorrow = [line for line in schedule_lines if today_str in line or tomorrow_str in line]
+                        if today_tomorrow:
+                            schedule_context = f"\n\n[TODAY'S EVENTS - {today_str}]\n" + "\n".join(today_tomorrow[:15])
+                
                 if schedule_context:
                     context_text += schedule_context
-
+                
                 response     = generate_response(query, context_text, active_lang, st.session_state.get("heat", 1))
                 log_and_show("info", "Response generated.")
 
@@ -1355,54 +1249,11 @@ def main():
                 st.markdown(log_html, unsafe_allow_html=True)
 
     # ═══════════════════════════════════════════════
-    # COLUMN 2 — INFO PANEL
+    # COLUMN 2 - INFO PANEL
     # ═══════════════════════════════════════════════
     with info_col:
 
-        # ── Heat Slider (MOVED TO TOP) ──
-        st.markdown('<div class="sidebar-heading">🔥 Rivalry Heat</div>', unsafe_allow_html=True)
-        heat_labels = {1: "1 — Simmering", 2: "2 — Tension", 3: "3 — Sparring", 4: "4 — Heated", 5: "5 — Bloodsport"}
-        current_heat = st.session_state.get("heat", 1)
-        heat_val = st.slider(
-            "Rivalry Heat",
-            min_value=1,
-            max_value=5,
-            value=current_heat,
-            step=1,
-            key="heat_slider",
-            label_visibility="collapsed"
-        )
-        st.caption(heat_labels[heat_val])
-        if heat_val != current_heat:
-            st.session_state["heat"] = heat_val
-
-        # gap
-        st.markdown('<div class="info-section-gap"></div>', unsafe_allow_html=True)
-
-        # ── Language toggle ──
-        st.markdown('<div class="sidebar-heading">🌍 Language</div>', unsafe_allow_html=True)
-        
-        lang_cols = st.columns(3, gap="small")
-        lang_options = [
-            ("EN", "🇬🇧 EN"),
-            ("FR", "🇫🇷 FR"),
-            ("IT", "🇮🇹 IT")
-        ]
-        
-        for col, (code, label) in zip(lang_cols, lang_options):
-            if col.button(
-                label, 
-                key=f"lang_{code}",
-                use_container_width=True,
-                type="primary" if code == active_lang else "secondary"
-            ):
-                st.session_state["lang"] = code
-                st.rerun()
-
-        # gap
-        st.markdown('<div class="info-section-gap"></div>', unsafe_allow_html=True)
-
-        # ── Competition Day / Countdown ──
+        # -- Competition Day / Countdown --
         if during_games:
             day_num  = (today - games_start).days + 1
             date_str = today.strftime("%A, %B %d")
@@ -1434,114 +1285,149 @@ def main():
                 unsafe_allow_html=True
             )
 
-        # gap before medal table
+        # gap between countdown and medal table
         st.markdown('<div class="info-section-gap"></div>', unsafe_allow_html=True)
 
-        # ── Medal Standings + Stats (only during games) ──
-        if during_games:
-            st.markdown(f'<div class="sidebar-heading">🏅 {t("standings_title")}</div>', unsafe_allow_html=True)
+        # -- Medal Standings --
+        st.markdown(f'<div class="sidebar-heading">🏅 {t("standings_title")}</div>', unsafe_allow_html=True)
 
-            if medal_df is not None and not medal_df.empty:
-                col_map = {}
-                for c in medal_df.columns:
-                    cl = str(c).lower().strip()
-                    if cl in ("nation", "country", "noc", "nations"): col_map[c] = "Country"
-                    elif cl == "gold":   col_map[c] = "Gold"
-                    elif cl == "silver": col_map[c] = "Silver"
-                    elif cl == "bronze": col_map[c] = "Bronze"
-                    elif cl == "total":  col_map[c] = "Total"
-                medal_df = medal_df.rename(columns=col_map)
+        if medal_df is not None and not medal_df.empty:
+            col_map = {}
+            for c in medal_df.columns:
+                cl = str(c).lower().strip()
+                if cl in ("nation", "country", "noc", "nations"): col_map[c] = "Country"
+                elif cl == "gold":   col_map[c] = "Gold"
+                elif cl == "silver": col_map[c] = "Silver"
+                elif cl == "bronze": col_map[c] = "Bronze"
+                elif cl == "total":  col_map[c] = "Total"
+            medal_df = medal_df.rename(columns=col_map)
 
-                keep = [c for c in ["Country", "Gold", "Silver", "Bronze", "Total"] if c in medal_df.columns]
-                if "Country" in medal_df.columns:
-                    mask = medal_df["Country"].astype(str).apply(
-                        lambda x: (
-                            x.strip() != "" and
-                            not x.strip()[0].isdigit() and
-                            "total" not in x.lower() and
-                            "neutral" not in x.lower() and
-                            "ain" != x.strip().lower()
-                        )
+            keep = [c for c in ["Country", "Gold", "Silver", "Bronze", "Total"] if c in medal_df.columns]
+            if "Country" in medal_df.columns:
+                mask = medal_df["Country"].astype(str).apply(
+                    lambda x: (
+                        x.strip() != "" and
+                        not x.strip()[0].isdigit() and
+                        "total" not in x.lower() and
+                        "neutral" not in x.lower() and
+                        "ain" != x.strip().lower()
                     )
-                    medal_df = medal_df.loc[mask].reset_index(drop=True)
-                top3 = medal_df[keep].head(3).reset_index(drop=True)
-
-                rows_html = ""
-                for i, row in top3.iterrows():
-                    country = str(row.get("Country", "—"))
-                    gold   = str(int(row["Gold"])) if "Gold" in row else "—"
-                    silver = str(int(row["Silver"])) if "Silver" in row else "—"
-                    bronze = str(int(row["Bronze"])) if "Bronze" in row else "—"
-                    total  = str(int(row["Total"])) if "Total" in row else "—"
-                    rows_html += (
-                        f'<tr>'
-                        f'<td class="medal-country">{country}</td>'
-                        f'<td class="medal-num">{gold}</td>'
-                        f'<td class="medal-num">{silver}</td>'
-                        f'<td class="medal-num">{bronze}</td>'
-                        f'<td class="medal-num medal-total">{total}</td>'
-                        f'</tr>'
-                    )
-
-                table_html = (
-                    '<table class="medal-table">'
-                    '<thead><tr>'
-                    '<th class="medal-th medal-th-country">Country</th>'
-                    '<th class="medal-th medal-th-gold">🥇</th>'
-                    '<th class="medal-th medal-th-silver">🥈</th>'
-                    '<th class="medal-th medal-th-bronze">🥉</th>'
-                    '<th class="medal-th medal-th-total">Total</th>'
-                    '</tr></thead>'
-                    f'<tbody>{rows_html}</tbody>'
-                    '</table>'
                 )
-                st.markdown(table_html, unsafe_allow_html=True)
-            else:
-                st.caption(medal_err or t("games_not_started"))
+                medal_df = medal_df.loc[mask].reset_index(drop=True)
+            top3 = medal_df[keep].head(3).reset_index(drop=True)
+
+            rows_html = ""
+            for i, row in top3.iterrows():
+                country = str(row.get("Country", "-"))
+                gold   = str(int(row["Gold"])) if "Gold" in row else "-"
+                silver = str(int(row["Silver"])) if "Silver" in row else "-"
+                bronze = str(int(row["Bronze"])) if "Bronze" in row else "-"
+                total  = str(int(row["Total"])) if "Total" in row else "-"
+                rows_html += (
+                    f'<tr>'
+                    f'<td class="medal-country">{country}</td>'
+                    f'<td class="medal-num">{gold}</td>'
+                    f'<td class="medal-num">{silver}</td>'
+                    f'<td class="medal-num">{bronze}</td>'
+                    f'<td class="medal-num medal-total">{total}</td>'
+                    f'</tr>'
+                )
+
+            table_html = (
+                '<table class="medal-table">'
+                '<thead><tr>'
+                '<th class="medal-th medal-th-country">Country</th>'
+                '<th class="medal-th medal-th-gold">🥇</th>'
+                '<th class="medal-th medal-th-silver">🥈</th>'
+                '<th class="medal-th medal-th-bronze">🥉</th>'
+                '<th class="medal-th medal-th-total">Total</th>'
+                '</tr></thead>'
+                f'<tbody>{rows_html}</tbody>'
+                '</table>'
+            )
+            st.markdown(table_html, unsafe_allow_html=True)
+        else:
+            st.caption(medal_err or t("games_not_started"))
 
         # gap
         st.markdown('<div class="info-section-gap"></div>', unsafe_allow_html=True)
 
-        # ── Medals Awarded + Athletes Tracked (only during games) ──
-        if during_games:
-            total_medals = "—"
-            if medal_df is not None and not medal_df.empty:
-                for cn in ["Total", "total"]:
-                    if cn in medal_df.columns:
-                        try:
-                            total_medals = f"{medal_df[cn].sum():,}"
-                        except Exception:
-                            pass
-                        break
+        # -- Medals Awarded + Athletes Tracked --
+        total_medals = "-"
+        if medal_df is not None and not medal_df.empty:
+            for cn in ["Total", "total"]:
+                if cn in medal_df.columns:
+                    try:
+                        total_medals = f"{medal_df[cn].sum():,}"
+                    except Exception:
+                        pass
+                    break
 
-            st.markdown(
-                f'<div class="stat-row">'
-                f'<div class="stat-card">'
-                f'<div class="stat-val">{total_medals}</div>'
-                f'<div class="stat-label">{t("medals_label")}</div></div>'
-                f'<div class="stat-card">'
-                f'<div class="stat-val">407</div>'
-                f'<div class="stat-label">{t("athletes_label")}</div></div>'
-                f'</div>',
-                unsafe_allow_html=True
-            )
+        st.markdown(
+            f'<div class="stat-row">'
+            f'<div class="stat-card">'
+            f'<div class="stat-val">{total_medals}</div>'
+            f'<div class="stat-label">{t("medals_label")}</div></div>'
+            f'<div class="stat-card">'
+            f'<div class="stat-val">407</div>'
+            f'<div class="stat-label">{t("athletes_label")}</div></div>'
+            f'</div>',
+            unsafe_allow_html=True
+        )
 
-            # gap
-            st.markdown('<div class="info-section-gap"></div>', unsafe_allow_html=True)
+        # gap
+        st.markdown('<div class="info-section-gap"></div>', unsafe_allow_html=True)
 
-        # ── About ──
+        # -- About --
         st.markdown(f'<div class="sidebar-heading">{t("about_title")}</div>', unsafe_allow_html=True)
         st.markdown(
             '<div class="about-block">'
-            '<span class="about-name">Tyler</span> <span class="about-flag">USA — 2018 Bronze · Figure Skating</span><br>'
-            '<span class="about-name">Sasha</span> <span class="about-flag">RUS — 2014 & 2018 Silver · Figure Skating</span>'
-            '<div class="about-divider">—</div>'
+            '<span class="about-name">Tyler</span> <span class="about-flag">USA - 2018 Bronze · Figure Skating</span><br>'
+            '<span class="about-name">Sasha</span> <span class="about-flag">RUS - 2014 & 2018 Silver · Figure Skating</span>'
+            '<div class="about-divider">-</div>'
             'Rivals 2014–2018. Now partners. It\'s complicated.'
             '<div class="about-stack"><strong>Stack:</strong> Pinecone · Sentence Transformers · Wikipedia</div>'
             '</div>',
             unsafe_allow_html=True
         )
 
+        # gap
+        st.markdown('<div class="info-section-gap"></div>', unsafe_allow_html=True)
+
+        # -- Heat --
+        st.markdown('<div class="sidebar-heading">🔥 Rivalry Heat</div>', unsafe_allow_html=True)
+        heat_labels = {1: "1 - Simmering", 2: "2 - Tension", 3: "3 - Sparring", 4: "4 - Heated", 5: "5 - Bloodsport"}
+        current_heat = st.session_state.get("heat", 1)
+        heat_val = st.slider(
+            "Rivalry Heat",
+            min_value=1,
+            max_value=5,
+            value=current_heat,
+            step=1,
+            key="heat_slider",
+            label_visibility="collapsed"
+        )
+        st.caption(heat_labels[heat_val])
+        if heat_val != current_heat:
+            st.session_state["heat"] = heat_val
+
+        # gap
+        st.markdown('<div class="info-section-gap"></div>', unsafe_allow_html=True)
+
+        # -- Language --
+        st.markdown(f'<div class="sidebar-heading">{t("about_title") if False else "Language"}</div>', unsafe_allow_html=True)
+        lang_options = {"EN": "🇬🇧 English", "FR": "🇫🇷 Français", "IT": "🇮🇹 Italiano"}
+        selected = st.selectbox(
+            "Language",
+            options=list(lang_options.keys()),
+            format_func=lambda k: lang_options[k],
+            index=list(lang_options.keys()).index(active_lang),
+            key="lang_select",
+            label_visibility="collapsed"
+        )
+        if selected != active_lang:
+            st.session_state["lang"] = selected
+            st.rerun()
 
 
 if __name__ == "__main__":
