@@ -17,3 +17,4 @@ huggingface-hub==0.26.5
 # Uncomment to enable advanced NLU features:
 spacy==3.7.6
 # After installing, run: python -m spacy download en_core_web_sm
+feedparser==6.0.11
