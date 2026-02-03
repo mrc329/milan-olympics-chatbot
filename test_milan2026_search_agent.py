@@ -13,7 +13,7 @@ import os
 # Import the search agent module
 # Adjust the import based on your actual module structure
 try:
-    from milan2026_search_agent import (
+    from milan2026_search_agent__2_ import (
         deterministic_id,
         truncate,
         strip_html,
@@ -27,7 +27,7 @@ except ImportError:
     import importlib.util
     spec = importlib.util.spec_from_file_location(
         "search_agent", 
-        os.path.join(os.path.dirname(__file__), "milan2026_search_agent.py")
+        os.path.join(os.path.dirname(__file__), "milan2026_search_agent__2_.py")
     )
     search_agent = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(search_agent)
@@ -90,7 +90,7 @@ class TestOlympicContentFilter(unittest.TestCase):
     """Test Olympic content filtering."""
     
     def test_filter_keeps_olympic_content(self):
-        """Test that Olympic-related content is kept."""
+        """Test that Milano Cortina content is kept (strict filter)."""
         chunks = [
             {
                 "id": "1",
@@ -100,7 +100,7 @@ class TestOlympicContentFilter(unittest.TestCase):
             },
             {
                 "id": "2",
-                "text": "Alpine skiing gold medal race heats up",
+                "text": "Alpine skiing gold medal race heats up",  # Generic, no Milano mention
                 "source_key": "test",
                 "url": "http://example.com/2"
             },
@@ -114,10 +114,10 @@ class TestOlympicContentFilter(unittest.TestCase):
         
         filtered = filter_olympic_content(chunks)
         
-        # Should keep Olympic content, filter out NBA
-        self.assertEqual(len(filtered), 2)
+        # STRICT filter: Only chunk #1 has "Milan 2026"
+        # Chunk #2 is generic (no Milano/Cortina mention) - should be filtered
+        self.assertEqual(len(filtered), 1)
         self.assertTrue(any("Milan 2026" in c["text"] for c in filtered))
-        self.assertTrue(any("Alpine skiing" in c["text"] for c in filtered))
         self.assertFalse(any("NBA" in c["text"] for c in filtered))
     
     def test_filter_empty_list(self):
@@ -140,22 +140,27 @@ class TestOlympicContentFilter(unittest.TestCase):
         self.assertEqual(len(filtered), 0)
     
     def test_olympic_keywords_comprehensive(self):
-        """Test that key Olympic keywords are present."""
-        # Core event keywords
+        """Test that key Milano Cortina keywords are present (strict filter)."""
+        # Core event keywords (Milano Cortina specific)
         self.assertIn("milano cortina", OLYMPIC_KEYWORDS)
         self.assertIn("milan 2026", OLYMPIC_KEYWORDS)
-        self.assertIn("winter olympics", OLYMPIC_KEYWORDS)
+        self.assertIn("winter olympics 2026", OLYMPIC_KEYWORDS)  # With year
         
-        # Winter sports
-        self.assertIn("figure skating", OLYMPIC_KEYWORDS)
+        # Location keywords
+        self.assertIn("cortina 2026", OLYMPIC_KEYWORDS)
+        self.assertIn("italy 2026", OLYMPIC_KEYWORDS)
+        
+        # Generic "winter olympics" should NOT be present (too broad)
+        self.assertNotIn("winter olympics", OLYMPIC_KEYWORDS)
+        self.assertNotIn("figure skating", OLYMPIC_KEYWORDS)  # Too generic
+        self.assertNotIn("gold medal", OLYMPIC_KEYWORDS)  # Too generic
         self.assertIn("alpine skiing", OLYMPIC_KEYWORDS)
         self.assertIn("ice hockey", OLYMPIC_KEYWORDS)
         self.assertIn("curling", OLYMPIC_KEYWORDS)
         
-        # These keywords should be added in future versions:
-        # - "gold medal", "silver medal", "bronze medal"
-        # - "olympic champion", "olympic athlete"
-        # - "olympics", "olympian", "ioc"
+        # Medal terms
+        self.assertIn("gold medal", OLYMPIC_KEYWORDS)
+        self.assertIn("olympic champion", OLYMPIC_KEYWORDS)
 
 
 class TestSearchAgentIntegration(unittest.TestCase):
@@ -215,12 +220,12 @@ class TestConfiguration(unittest.TestCase):
         """Test that namespace is set correctly."""
         # Import namespace from module
         try:
-            from milan2026_search_agent import NAMESPACE
+            from milan2026_search_agent__2_ import NAMESPACE
         except ImportError:
             import importlib.util
             spec = importlib.util.spec_from_file_location(
                 "search_agent", 
-                os.path.join(os.path.dirname(__file__), "milan2026_search_agent.py")
+                os.path.join(os.path.dirname(__file__), "milan2026_search_agent__2_.py")
             )
             search_agent = importlib.util.module_from_spec(spec)
             spec.loader.exec_module(search_agent)
