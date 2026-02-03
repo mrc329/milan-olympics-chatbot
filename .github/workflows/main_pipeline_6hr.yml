@@ -1,0 +1,59 @@
+name: Main Pipeline (6hr)
+
+on:
+  schedule:
+    # Run every 6 hours: 00:00, 06:00, 12:00, 18:00 UTC
+    - cron: '0 */6 * * *'
+  workflow_dispatch:  # Manual trigger
+  push:
+    branches: [ main ]  # Also run on push for testing
+
+jobs:
+  pipeline:
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+      
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+      
+      - name: Cache sentence-transformers models
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/torch/sentence_transformers
+          key: sentence-transformers-${{ runner.os }}-v1
+          restore-keys: |
+            sentence-transformers-${{ runner.os }}-
+      
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+      
+      - name: Run tests
+        run: |
+          python -m pytest test_milan2026_search_agent.py -v
+          python -m pytest test_milan2026_pipeline.py -v
+      
+      - name: Run main pipeline
+        env:
+          PINECONE_API_KEY: ${{ secrets.PINECONE_API_KEY }}
+          PIPELINE_LOG_LEVEL: INFO
+        run: |
+          echo "🔄 Running main pipeline at $(date -u)"
+          python milan2026_pipeline.py
+      
+      - name: Upload logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: pipeline-logs-${{ github.run_number }}
+          path: |
+            *.log
+            pipeline_report.json
+          retention-days: 7

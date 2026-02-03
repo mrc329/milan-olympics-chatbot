@@ -1,0 +1,50 @@
+name: RSS Search Agent (30min)
+
+on:
+  schedule:
+    # Run every 30 minutes
+    - cron: '*/30 * * * *'
+  workflow_dispatch:  # Manual trigger
+
+jobs:
+  rss-agent:
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+      
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+      
+      - name: Cache sentence-transformers models
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/torch/sentence_transformers
+          key: sentence-transformers-${{ runner.os }}-v1
+          restore-keys: |
+            sentence-transformers-${{ runner.os }}-
+      
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+      
+      - name: Run RSS search agent
+        env:
+          PINECONE_API_KEY: ${{ secrets.PINECONE_API_KEY }}
+          AGENT_LOG_LEVEL: INFO
+        run: |
+          python milan2026_search_agent.py
+      
+      - name: Upload logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: rss-agent-logs-${{ github.run_number }}
+          path: |
+            *.log
+          retention-days: 3  # Only keep 3 days for high-frequency runs
