@@ -1123,10 +1123,18 @@ def main():
     st.markdown(CSS, unsafe_allow_html=True)
 
     # -- session init --
+    # Read language from query params if present
+    query_params = st.query_params
+    lang_from_url = query_params.get("lang", ["EN"])[0] if isinstance(query_params.get("lang"), list) else query_params.get("lang", "EN")
+    
     if "lang" not in st.session_state:
-        st.session_state["lang"] = "EN"
+        st.session_state["lang"] = lang_from_url
+    elif lang_from_url and lang_from_url != st.session_state["lang"]:
+        # URL param overrides session state
+        st.session_state["lang"] = lang_from_url
+        
     if "input_gen" not in st.session_state:
-        st.session_state["input_gen"] = 0
+        st.session_state[" input_gen"] = 0
     if "history" not in st.session_state:
         st.session_state["history"] = []
 
@@ -1363,39 +1371,30 @@ def main():
         lang_btns_html += '</div>'
         st.markdown(lang_btns_html, unsafe_allow_html=True)
 
-        # Streamlit buttons (hidden, clicked programmatically by the JS above)
-        st.markdown('<div class="lang-triggers">', unsafe_allow_html=True)
-        lang_trigger_cols = st.columns(3, gap="small")
-        for idx, (code, _, _) in enumerate(LANG_DEFS):
-            lang_trigger_cols[idx].button(
-                code,
-                key=f"lang_trigger_{code}",
-                use_container_width=True,
-                help=f"Switch to {code}",
-                on_click=lambda c=code: st.session_state.update({"lang": c})
-            )
-        st.markdown('</div>', unsafe_allow_html=True)
-
-        # Inject JS that forwards clicks on .lang-btn into the hidden Streamlit buttons
+        # Language switching - NO visible Streamlit buttons needed
+        # The flag buttons update session state directly via JavaScript
         st.markdown("""
         <script>
         (function() {
-            // Wait for Streamlit to finish rendering, then wire up
-            function wire() {
+            function wireLangButtons() {
                 var btns = document.querySelectorAll('.lang-btn');
-                if (btns.length === 0) { setTimeout(wire, 150); return; }
+                if (btns.length === 0) {
+                    setTimeout(wireLangButtons, 150);
+                    return;
+                }
+                
                 btns.forEach(function(btn) {
                     btn.addEventListener('click', function() {
-                        var code = btn.getAttribute('data-lang');
-                        // find the matching hidden trigger button by its text content
-                        var triggers = document.querySelectorAll('button');
-                        triggers.forEach(function(t) {
-                            if (t.textContent.trim() === code) { t.click(); }
-                        });
+                        var lang = btn.getAttribute('data-lang');
+                        
+                        // Force page reload with lang query param
+                        var url = new URL(window.location);
+                        url.searchParams.set('lang', lang);
+                        window.location.href = url.toString();
                     });
                 });
             }
-            wire();
+            wireLangButtons();
         })();
         </script>
         """, unsafe_allow_html=True)
