@@ -19,10 +19,6 @@ jobs:
         with:
           python-version: "3.11"
 
-      - name: Run tests
-        run: |
-          python -m unittest test_milan2026_pipeline -v
-
       # Restore model cache — correct path + restore-keys fallback
       - name: Restore model cache
         id: cache-restore
@@ -33,12 +29,18 @@ jobs:
           restore-keys: |
             st-model-all-MiniLM-L6-v2-
 
+      # IMPORTANT: Install dependencies BEFORE running tests
       - name: Install dependencies
         run: |
           pip install --quiet \
             pinecone \
             sentence-transformers \
             requests
+
+      # Now run tests (after dependencies are installed)
+      - name: Run tests
+        run: |
+          python -m unittest test_milan2026_pipeline -v
 
       - name: Run Milan 2026 Pipeline
         env:
@@ -82,11 +84,6 @@ jobs:
         with:
           python-version: "3.11"
 
-      # ── unit tests first — pure stdlib, no deps needed ──
-      - name: Run search-agent tests
-        run: |
-          python -m unittest test_milan2026_search_agent -v
-
       # Same model cache as the pipeline job — shared key
       - name: Restore model cache
         id: cache-restore-agent
@@ -97,12 +94,18 @@ jobs:
           restore-keys: |
             st-model-all-MiniLM-L6-v2-
 
+      # IMPORTANT: Install dependencies BEFORE running tests
       - name: Install dependencies
         run: |
           pip install --quiet \
             pinecone \
             sentence-transformers \
             requests
+
+      # ── unit tests AFTER dependencies are installed ──
+      - name: Run search-agent tests
+        run: |
+          python -m unittest test_milan2026_search_agent -v
 
       # ── run the agent ──
       # Fetches RSS feeds + Codante /countries, dedupes, embeds, upserts.
