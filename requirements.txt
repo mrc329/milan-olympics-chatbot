@@ -5,9 +5,8 @@ requests
 pandas
 
 # Streamlit app dependencies
-streamlit
 huggingface-hub
-altair=4
+streamlit>=1.30.0
 
 # Optional: NLU (entity extraction, better quality scoring)
 # Uncomment to enable advanced NLU features:
