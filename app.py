@@ -1478,62 +1478,62 @@ def main():
             st.markdown(f'<div class="sidebar-heading">🏅 {t("standings_title")}</div>', unsafe_allow_html=True)
 
             if medal_df is not None and not medal_df.empty:
-            col_map = {}
-            for c in medal_df.columns:
-                cl = str(c).lower().strip()
-                if cl in ("nation", "country", "noc", "nations"): col_map[c] = "Country"
-                elif cl == "gold":   col_map[c] = "Gold"
-                elif cl == "silver": col_map[c] = "Silver"
-                elif cl == "bronze": col_map[c] = "Bronze"
-                elif cl == "total":  col_map[c] = "Total"
-            medal_df = medal_df.rename(columns=col_map)
+                col_map = {}
+                for c in medal_df.columns:
+                    cl = str(c).lower().strip()
+                    if cl in ("nation", "country", "noc", "nations"): col_map[c] = "Country"
+                    elif cl == "gold":   col_map[c] = "Gold"
+                    elif cl == "silver": col_map[c] = "Silver"
+                    elif cl == "bronze": col_map[c] = "Bronze"
+                    elif cl == "total":  col_map[c] = "Total"
+                medal_df = medal_df.rename(columns=col_map)
 
-            keep = [c for c in ["Country", "Gold", "Silver", "Bronze", "Total"] if c in medal_df.columns]
-            if "Country" in medal_df.columns:
-                mask = medal_df["Country"].astype(str).apply(
-                    lambda x: (
-                        x.strip() != "" and
-                        not x.strip()[0].isdigit() and
-                        "total" not in x.lower() and
-                        "neutral" not in x.lower() and
-                        "ain" != x.strip().lower()
+                keep = [c for c in ["Country", "Gold", "Silver", "Bronze", "Total"] if c in medal_df.columns]
+                if "Country" in medal_df.columns:
+                    mask = medal_df["Country"].astype(str).apply(
+                        lambda x: (
+                            x.strip() != "" and
+                            not x.strip()[0].isdigit() and
+                            "total" not in x.lower() and
+                            "neutral" not in x.lower() and
+                            "ain" != x.strip().lower()
+                        )
                     )
-                )
-                medal_df = medal_df.loc[mask].reset_index(drop=True)
-            top3 = medal_df[keep].head(3).reset_index(drop=True)
+                    medal_df = medal_df.loc[mask].reset_index(drop=True)
+                top3 = medal_df[keep].head(3).reset_index(drop=True)
 
-            rows_html = ""
-            for i, row in top3.iterrows():
-                country = str(row.get("Country", "-"))
-                gold   = str(int(row["Gold"])) if "Gold" in row else "-"
-                silver = str(int(row["Silver"])) if "Silver" in row else "-"
-                bronze = str(int(row["Bronze"])) if "Bronze" in row else "-"
-                total  = str(int(row["Total"])) if "Total" in row else "-"
-                rows_html += (
-                    f'<tr>'
-                    f'<td class="medal-country">{country}</td>'
-                    f'<td class="medal-num">{gold}</td>'
-                    f'<td class="medal-num">{silver}</td>'
-                    f'<td class="medal-num">{bronze}</td>'
-                    f'<td class="medal-num medal-total">{total}</td>'
-                    f'</tr>'
-                )
+                rows_html = ""
+                for i, row in top3.iterrows():
+                    country = str(row.get("Country", "—"))
+                    gold   = str(int(row["Gold"])) if "Gold" in row else "—"
+                    silver = str(int(row["Silver"])) if "Silver" in row else "—"
+                    bronze = str(int(row["Bronze"])) if "Bronze" in row else "—"
+                    total  = str(int(row["Total"])) if "Total" in row else "—"
+                    rows_html += (
+                        f'<tr>'
+                        f'<td class="medal-country">{country}</td>'
+                        f'<td class="medal-num">{gold}</td>'
+                        f'<td class="medal-num">{silver}</td>'
+                        f'<td class="medal-num">{bronze}</td>'
+                        f'<td class="medal-num medal-total">{total}</td>'
+                        f'</tr>'
+                    )
 
-            table_html = (
-                '<table class="medal-table">'
-                '<thead><tr>'
-                '<th class="medal-th medal-th-country">Country</th>'
-                '<th class="medal-th medal-th-gold">🥇</th>'
-                '<th class="medal-th medal-th-silver">🥈</th>'
-                '<th class="medal-th medal-th-bronze">🥉</th>'
-                '<th class="medal-th medal-th-total">Total</th>'
-                '</tr></thead>'
-                f'<tbody>{rows_html}</tbody>'
-                '</table>'
-            )
-            st.markdown(table_html, unsafe_allow_html=True)
-        else:
-            st.caption(medal_err or t("games_not_started"))
+                table_html = (
+                    '<table class="medal-table">'
+                    '<thead><tr>'
+                    '<th class="medal-th medal-th-country">Country</th>'
+                    '<th class="medal-th medal-th-gold">🥇</th>'
+                    '<th class="medal-th medal-th-silver">🥈</th>'
+                    '<th class="medal-th medal-th-bronze">🥉</th>'
+                    '<th class="medal-th medal-th-total">Total</th>'
+                    '</tr></thead>'
+                    f'<tbody>{rows_html}</tbody>'
+                    '</table>'
+                )
+                st.markdown(table_html, unsafe_allow_html=True)
+            else:
+                st.caption(medal_err or t("games_not_started"))
 
         # gap
         st.markdown('<div class="info-section-gap"></div>', unsafe_allow_html=True)
@@ -1577,6 +1577,8 @@ def main():
             '</div>',
             unsafe_allow_html=True
         )
+
+
 
 if __name__ == "__main__":
     main()
