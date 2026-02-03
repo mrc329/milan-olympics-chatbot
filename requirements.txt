@@ -7,7 +7,7 @@ pandas
 # Streamlit app dependencies
 streamlit
 huggingface-hub
-altair<6
+altair=4
 
 # Optional: NLU (entity extraction, better quality scoring)
 # Uncomment to enable advanced NLU features:
