@@ -261,45 +261,26 @@ OLYMPIC_KEYWORDS = {
     # Event-specific (Milan 2026 only)
     "milano cortina", "milan cortina", "milano 2026", "milan 2026",
     "cortina 2026", "winter olympics 2026", "olympic winter games 2026",
-    "2026 winter olympics", "2026 olympics",
+    # STRICT - Only Milano Cortina 2026 specific content
+    # Removed generic terms that match any Olympics (too many false positives)
+    "milano cortina", "milan cortina", "milano 2026", "milan 2026",
+    "cortina 2026", "cortina d'ampezzo",
+    "2026 winter olympics", "winter olympics 2026", 
+    "olympic winter games 2026", "2026 olympics",
     
-    # Winter Olympics (generic but winter-specific)
-    "winter olympics", "olympic winter games", "winter olympic",
+    # Italy-specific
+    "italy 2026", "italy winter olympics", "italy olympics",
     
-    # Athletes & roles (catches "Olympic skater", "Olympic skier")
-    "olympic skier", "olympic skater", "olympic snowboarder",
-    "olympic athlete", "olympian",
-    
-    # Medal/competition terms
-    "gold medal", "silver medal", "bronze medal", "olympic medal",
-    "podium", "olympic champion", "flag bearer", "flagbearer",
-    "opening ceremony", "closing ceremony",
-    
-    # Winter sports - general
-    "alpine skiing", "alpine skier", "downhill ski", "slalom", "giant slalom",
-    "figure skating", "figure skater", "ice skating", "ice skater",
-    "ice hockey", "hockey player", "ice hockey arena",
-    "speed skating", "speed skater", "speedskater", "short track",
-    "bobsled", "bobsledder", "bobsleigh", "skeleton", "luge",
-    "ski jumping", "ski jumper", "freestyle skiing", "freestyle skier",
-    "cross-country ski", "nordic ski", "curling", "biathlon",
-    "snowboard", "snowboarder", "nordic combined", "ski mountaineering",
-    
-    # Famous winter athletes (catches articles about them)
-    "lindsey vonn", "mikaela shiffrin", "erin jackson", "brittany bowe",
-    "ilia malinin", "nathan chen", "yuzuru hanyu",
-    "chloe kim", "shaun white", "eileen gu",
-    
-    # Organizations
-    "ioc", "international olympic committee",
-    "usoc", "usopc", "team usa olympic",
+    # Venues (Milano Cortina specific)
+    "olympic stadium milan", "cortina ice stadium",
+    "valtellina", "val di fiemme", "livigno",
 }
 
 
 def filter_olympic_content(chunks: list[dict]) -> list[dict]:
     """
-    Keep only chunks mentioning Olympic-related keywords.
-    Prevents NBA/NFL/soccer stories from polluting narratives namespace.
+    Keep only chunks explicitly mentioning Milano Cortina 2026.
+    Strict filter to avoid generic Olympics content (LA 2028, past Games, etc).
     """
     if not chunks:
         return []
