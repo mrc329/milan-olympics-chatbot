@@ -12,7 +12,7 @@ Sources
   3. Team USA RSS           — official US Olympic Committee news
        https://www.teamusa.com/news/rss
   4. AP News Olympics       — wire service (NBC/ESPN/all outlets pull from AP)
-       https://apnews.com/search?q=olympics&format=rss
+       https://apnews.com/hub/milan-cortina-2026-winter-olympics?format=rss
 
 Olympic Content Filter
   RSS feeds cover ALL sports (NBA, NFL, soccer, etc). We filter to keep
@@ -76,7 +76,7 @@ RSS_FEEDS = [
     },
     {
         "key":   "ap_olympics",
-        "url":   "https://apnews.com/hub/milan-cortina-2026-winter-olympics",
+        "url":   "https://apnews.com/hub/milan-cortina-2026-winter-olympics?format=rss",
         "label": "AP News Olympics",
     },
 ]
