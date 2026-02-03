@@ -76,7 +76,7 @@ RSS_FEEDS = [
     },
     {
         "key":   "ap_olympics",
-        "url":   "https://apnews.com/search?q=olympics&format=rss",
+        "url":   "https://apnews.com/hub/milan-cortina-2026-winter-olympics",
         "label": "AP News Olympics",
     },
 ]
