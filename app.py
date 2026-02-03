@@ -1027,7 +1027,22 @@ hr { border: none; border-top: 1px solid #E8ECEE !important; margin: 0.8rem 0 !i
 .lang-btn .lang-label { display: block; font-size: 0.62rem; margin-top: 0.1rem; letter-spacing: 0.04em; }
 
 /* -- hidden lang trigger buttons (clicked programmatically by .lang-btn JS) -- */
-.lang-triggers { height: 0; overflow: hidden; margin: 0 !important; padding: 0 !important; }
+div[data-testid="column"] > div > div > button[kind="secondary"] {
+    display: none !important;
+}
+.lang-triggers,
+.lang-triggers > div,
+.lang-triggers button {
+    height: 0 !important;
+    min-height: 0 !important;
+    padding: 0 !important;
+    margin: 0 !important;
+    border: none !important;
+    opacity: 0 !important;
+    pointer-events: none !important;
+    position: absolute !important;
+    left: -9999px !important;
+}
 
 /* -- Streamlit spinner tint -- */
 .stSpinner > div { border-color: #00818A !important; }
@@ -1145,25 +1160,8 @@ def main():
     # COLUMN 1 - CONVERSATION
     # ═══════════════════════════════════════════════
     with chat_col:
-        # suggestion pills
-        static_pills = t("suggestions_static")
-        pills = [(s, s) for s in static_pills]
-        if during_games:
-            pills.insert(2, (t("suggestion_schedule"),
-                             t("suggestion_schedule_query").format(date=today.strftime("%B %d"))))
-        else:
-            pills.insert(2, (t("suggestion_schedule_off"),
-                             t("suggestion_schedule_off")))
-
-        st.markdown(
-            f'<p class="try-label">{t("try_asking")}</p>',
-            unsafe_allow_html=True
-        )
-        pill_cols = st.columns(len(pills), gap="small")
-        for col, (label, query_text) in zip(pill_cols, pills):
-            if col.button(label, use_container_width=True, key=f"pill_{hash(label)}_{active_lang}"):
-                st.session_state["pending_query"] = query_text
-                st.rerun()
+        # REMOVED: suggestion pills (wasted vertical space)
+        # Users can type questions directly
 
         pending = st.session_state.pop("pending_query", "")
 
