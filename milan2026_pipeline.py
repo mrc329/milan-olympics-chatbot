@@ -1500,22 +1500,22 @@ def main():
             medal_df = medal_df.loc[mask].reset_index(drop=True)
         top3 = medal_df[keep].head(3).reset_index(drop=True)
         
-            rows_html = ""
-            for i, row in top3.iterrows():
-                country = str(row.get("Country", "-"))
-                gold   = str(int(row["Gold"])) if "Gold" in row else "-"
-                silver = str(int(row["Silver"])) if "Silver" in row else "-"
-                bronze = str(int(row["Bronze"])) if "Bronze" in row else "-"
-                total  = str(int(row["Total"])) if "Total" in row else "-"
-                rows_html += (
-                    f'<tr>'
-                    f'<td class="medal-country">{country}</td>'
-                    f'<td class="medal-num">{gold}</td>'
-                    f'<td class="medal-num">{silver}</td>'
-                    f'<td class="medal-num">{bronze}</td>'
-                    f'<td class="medal-num medal-total">{total}</td>'
-                    f'</tr>'
-                )
+        rows_html = ""
+        for i, row in top3.iterrows():
+            country = str(row.get("Country", "-"))
+            gold   = str(int(row["Gold"])) if "Gold" in row else "-"
+            silver = str(int(row["Silver"])) if "Silver" in row else "-"
+            bronze = str(int(row["Bronze"])) if "Bronze" in row else "-"
+            total  = str(int(row["Total"])) if "Total" in row else "-"
+            rows_html += (
+                f'<tr>'
+                f'<td class="medal-country">{country}</td>'
+                f'<td class="medal-num">{gold}</td>'
+                f'<td class="medal-num">{silver}</td>'
+                f'<td class="medal-num">{bronze}</td>'
+                f'<td class="medal-num medal-total">{total}</td>'
+                f'</tr>'
+            )
 
             table_html = (
                 '<table class="medal-table">'
