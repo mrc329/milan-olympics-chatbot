@@ -9,10 +9,8 @@ Sources
        https://rss.art19.com/olympic-channel
   2. BBC Sport Olympics RSS — structured, reliable, updated during Games
        https://feeds.bbci.co.uk/sport/olympics/rss.xml
-  3. Team USA RSS           — official US Olympic Committee news
-       https://www.teamusa.com/news/rss
-  4. AP News Olympics       — wire service (NBC/ESPN/all outlets pull from AP)
-       https://apnews.com/hub/milan-cortina-2026-winter-olympics?format=rss
+  3. Google News - Olympics — aggregates AP, Reuters, ESPN, and all news sources
+       https://news.google.com/rss (search query for Milano Cortina)
 
 Olympic Content Filter
   RSS feeds cover ALL sports (NBA, NFL, soccer, etc). We filter to keep
@@ -75,15 +73,11 @@ RSS_FEEDS = [
         "url":   "https://feeds.bbci.co.uk/sport/olympics/rss.xml",
         "label": "BBC Sport Olympics",
     },
+    # Google News - aggregates AP, Reuters, ESPN, etc.
     {
-        "key":   "team_usa",
-        "url":   "https://www.teamusa.com/news/rss",
-        "label": "Team USA",
-    },
-    {
-        "key":   "ap_olympics",
-        "url":   "https://apnews.com/hub/milan-cortina-2026-winter-olympics?format=rss",
-        "label": "AP News Olympics",
+        "key":   "google_news_olympics",
+        "url":   "https://news.google.com/rss/search?q=Milano+Cortina+2026+OR+Winter+Olympics+2026&hl=en-US&gl=US&ceid=US:en",
+        "label": "Google News - Olympics",
     },
 ]
 
@@ -305,10 +299,7 @@ OLYMPIC_KEYWORDS = {
 def filter_olympic_content(chunks: list[dict]) -> list[dict]:
     """
     Keep only chunks mentioning Olympic-related keywords.
-    
-    Context-aware filtering:
-    - AP Milano Cortina hub (ap_olympics): Keep ALL chunks (already filtered by AP)
-    - Other feeds: Apply keyword filter to avoid NBA/NFL/soccer
+    Prevents NBA/NFL/soccer stories from polluting narratives namespace.
     """
     if not chunks:
         return []
@@ -317,15 +308,8 @@ def filter_olympic_content(chunks: list[dict]) -> list[dict]:
     kept = []
     
     for chunk in chunks:
-        source_key = chunk.get("source_key", "")
-        
-        # AP Milano Cortina hub - trust it's already filtered
-        if source_key == "ap_olympics":
-            kept.append(chunk)
-            continue
-        
-        # Other feeds - apply keyword filter
         text_lower = chunk["text"].lower()
+        
         if any(kw in text_lower for kw in OLYMPIC_KEYWORDS):
             kept.append(chunk)
         else:
