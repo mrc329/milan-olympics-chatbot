@@ -40,12 +40,18 @@ from datetime import datetime, timezone
 from sentence_transformers import SentenceTransformer
 from pinecone import Pinecone
 
+# Try to import feedparser for robust RSS parsing
+try:
+    import feedparser
+    FEEDPARSER_AVAILABLE = True
+except ImportError:
+    FEEDPARSER_AVAILABLE = False
+
 # Import NLU module
 try:
     from milan2026_nlu import analyze_content, enrich_metadata
     NLU_AVAILABLE = True
 except ImportError:
-    logger.warning("NLU module not available - running without entity extraction")
     NLU_AVAILABLE = False
 
 # ═══════════════════════════════════════════════════════════
@@ -96,6 +102,16 @@ logging.basicConfig(
 )
 logger = logging.getLogger("search_agent")
 
+# Log feedparser availability
+if FEEDPARSER_AVAILABLE:
+    logger.info("feedparser available - robust RSS parsing enabled")
+else:
+    logger.warning("feedparser not available - using basic XML parser (may fail on malformed feeds)")
+
+# Log NLU availability
+if not NLU_AVAILABLE:
+    logger.warning("NLU module not available - running without entity extraction")
+
 
 # ═══════════════════════════════════════════════════════════
 # HELPERS
@@ -118,15 +134,15 @@ def strip_html(text: str) -> str:
 
 
 # ═══════════════════════════════════════════════════════════
-# RSS PARSING  (stdlib xml only — no beautifulsoup)
+# RSS PARSING (with feedparser fallback)
 # ═══════════════════════════════════════════════════════════
 def parse_rss_feed(feed_def: dict) -> list[dict]:
     """
     Fetch one RSS 2.0 feed, return list of:
-        { "id": str, "text": str, "source_key": str, "url": str }
+        { "id": str, "text": str, "source_key": str, "url": str, "title": str }
 
-    Extracts <title> + <description> (or <summary>).  Skips items
-    shorter than MIN_WORDS after cleaning.
+    Uses feedparser if available (handles malformed XML), falls back to
+    stdlib xml.etree.ElementTree if feedparser not installed.
     """
     key   = feed_def["key"]
     url   = feed_def["url"]
@@ -140,6 +156,61 @@ def parse_rss_feed(feed_def: dict) -> list[dict]:
         logger.warning(f"  RSS fetch failed ({label}): {e}")
         return []
 
+    # Try feedparser first (handles malformed XML gracefully)
+    if FEEDPARSER_AVAILABLE:
+        try:
+            feed = feedparser.parse(resp.content)
+            
+            # Check for parsing issues (bozo flag)
+            if feed.bozo and feed.bozo_exception:
+                logger.debug(f"  Feed had minor parsing issues (handled): {feed.bozo_exception}")
+            
+            chunks: list[dict] = []
+            seen_titles: set[str] = set()
+
+            for entry in feed.entries:
+                title = entry.get('title', '').strip()
+                
+                # Try multiple fields for content
+                desc = (
+                    entry.get('description', '') or 
+                    entry.get('summary', '') or 
+                    (entry.get('content', [{}])[0].get('value', '') if entry.get('content') else '')
+                ).strip()
+                
+                link = entry.get('link', '').strip()
+
+                if not title and not desc:
+                    continue
+
+                # Dedupe within this feed
+                if title in seen_titles:
+                    continue
+                seen_titles.add(title)
+
+                body = strip_html(desc)
+                text = truncate(f"{title}. {body}")
+
+                if len(text.split()) < MIN_WORDS:
+                    continue
+
+                vec_id = deterministic_id(key, link or title)
+                chunks.append({
+                    "id":         vec_id,
+                    "text":       text,
+                    "source_key": key,
+                    "url":        link,
+                    "title":      title,
+                })
+
+            logger.info(f"  → {len(chunks)} chunks from {label}")
+            return chunks
+            
+        except Exception as e:
+            logger.warning(f"  feedparser failed ({label}): {e}, trying XML parser")
+            # Fall through to XML parser below
+
+    # Fallback to basic XML parser
     try:
         root = ET.fromstring(resp.text)
     except ET.ParseError as e:
@@ -182,6 +253,7 @@ def parse_rss_feed(feed_def: dict) -> list[dict]:
             "text":       text,
             "source_key": key,
             "url":        link,
+            "title":      title,
         })
 
     logger.info(f"  → {len(chunks)} chunks from {label}")
