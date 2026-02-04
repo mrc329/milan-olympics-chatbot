@@ -1275,6 +1275,25 @@ def main():
     # ═══════════════════════════════════════════════
     with info_col:
 
+         # -- Language Selector (moved to top) --
+        lang_options = {"EN": "🇬🇧 EN", "FR": "🇫🇷 FR", "IT": "🇮🇹 IT"}
+        lang_cols = st.columns(3)
+        for idx, (code, label) in enumerate(lang_options.items()):
+            with lang_cols[idx]:
+                is_active = (code == active_lang)
+                if st.button(
+                    label,
+                    key=f"lang_btn_{code}",
+                    use_container_width=True,
+                    type="primary" if is_active else "secondary"
+                ):
+                    if code != active_lang:
+                        st.session_state["lang"] = code
+                        st.rerun()
+        
+        # Small gap
+        st.markdown('<div style="height:0.5rem"></div>', unsafe_allow_html=True)
+        
         # -- Competition Day / Countdown --
         if during_games:
             day_num  = (today - games_start).days + 1
@@ -1400,18 +1419,18 @@ def main():
         # gap
         st.markdown('<div class="info-section-gap"></div>', unsafe_allow_html=True)
 
-        # -- About --
-        st.markdown(f'<div class="sidebar-heading">{t("about_title")}</div>', unsafe_allow_html=True)
-        st.markdown(
-            '<div class="about-block">'
-            '<span class="about-name">Tyler</span> <span class="about-flag">USA - 2018 Bronze · Figure Skating</span><br>'
-            '<span class="about-name">Sasha</span> <span class="about-flag">RUS - 2014 & 2018 Silver · Figure Skating</span>'
-            '<div class="about-divider">-</div>'
-            'Rivals 2014–2018. Now partners. It\'s complicated.'
-            '<div class="about-stack"><strong>Stack:</strong> Pinecone · Sentence Transformers · Wikipedia</div>'
-            '</div>',
-            unsafe_allow_html=True
-        )
+       # -- About (collapsible, collapsed by default) --
+        with st.expander("ℹ️ About Tyler & Sasha", expanded=False):
+            st.markdown(
+                '<div class="about-block">'
+                '<span class="about-name">Tyler</span> <span class="about-flag">USA - 2018 Bronze · Figure Skating</span><br>'
+                '<span class="about-name">Sasha</span> <span class="about-flag">RUS - 2014 & 2018 Silver · Figure Skating</span>'
+                '<div class="about-divider">-</div>'
+                'Rivals 2014–2018. Now partners. It\'s complicated.'
+                '<div class="about-stack"><strong>Stack:</strong> Pinecone · Sentence Transformers · Wikipedia · RSS Feeds </div>'
+                '</div>',
+                unsafe_allow_html=True
+            )
 
         # gap
         st.markdown('<div class="info-section-gap"></div>', unsafe_allow_html=True)
@@ -1435,22 +1454,6 @@ def main():
 
         # gap
         st.markdown('<div class="info-section-gap"></div>', unsafe_allow_html=True)
-
-        # -- Language --
-        st.markdown(f'<div class="sidebar-heading">{t("about_title") if False else "Language"}</div>', unsafe_allow_html=True)
-        lang_options = {"EN": "🇬🇧 English", "FR": "🇫🇷 Français", "IT": "🇮🇹 Italiano"}
-        selected = st.selectbox(
-            "Language",
-            options=list(lang_options.keys()),
-            format_func=lambda k: lang_options[k],
-            index=list(lang_options.keys()).index(active_lang),
-            key="lang_select",
-            label_visibility="collapsed"
-        )
-        if selected != active_lang:
-            st.session_state["lang"] = selected
-            st.rerun()
-
 
 if __name__ == "__main__":
     main()
