@@ -1327,7 +1327,7 @@ def main():
             )
 
         # gap between countdown and medal table
-         st.markdown('<div style="height:0.8rem"></div>', unsafe_allow_html=True)
+        st.markdown('<div style="height:0.8rem"></div>', unsafe_allow_html=True)
 
         # -- Medal Standings --
         st.markdown(f'<div class="sidebar-heading">🏅 {t("standings_title")}</div>', unsafe_allow_html=True)
@@ -1391,7 +1391,7 @@ def main():
             st.caption(medal_err or t("games_not_started"))
 
         # gap
-         st.markdown('<div style="height:0.8rem"></div>', unsafe_allow_html=True)
+        st.markdown('<div style="height:0.8rem"></div>', unsafe_allow_html=True)
 
         # -- Medals Awarded + Athletes Tracked --
         total_medals = "-"
@@ -1417,7 +1417,7 @@ def main():
         )
 
         # gap
-         st.markdown('<div style="height:0.8rem"></div>', unsafe_allow_html=True)
+        st.markdown('<div style="height:0.8rem"></div>', unsafe_allow_html=True)
 
        # -- About (collapsible, collapsed by default) --
         with st.expander("ℹ️ About Tyler & Sasha", expanded=False):
@@ -1433,7 +1433,7 @@ def main():
             )
 
         # gap
-         st.markdown('<div style="height:0.8rem"></div>', unsafe_allow_html=True)
+        st.markdown('<div style="height:0.8rem"></div>', unsafe_allow_html=True)
 
         # -- Heat --
         st.markdown('<div class="sidebar-heading">🔥 Rivalry Heat</div>', unsafe_allow_html=True)
@@ -1453,7 +1453,7 @@ def main():
             st.session_state["heat"] = heat_val
 
         # gap
-         st.markdown('<div style="height:0.8rem"></div>', unsafe_allow_html=True)
+        st.markdown('<div style="height:0.8rem"></div>', unsafe_allow_html=True)
 
 if __name__ == "__main__":
     main()
