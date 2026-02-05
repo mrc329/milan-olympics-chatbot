@@ -1294,6 +1294,18 @@ def main():
         # Small gap
         st.markdown('<div style="height:0.5rem"></div>', unsafe_allow_html=True)
         
+# This file is too large to create inline. 
+# Instead, here are the EXACT lines you need to replace in your app.py:
+
+# FIND THIS SECTION (around line 1290-1340):
+# Everything from "# -- Competition Day / Countdown --" 
+# to just before "# gap between countdown and medal table"
+
+# DELETE IT ALL
+
+# REPLACE WITH THESE EXACT LINES:
+# (Make sure you're using 8 spaces at the start of each line)
+
         # -- Competition Day / Countdown --
         if during_games:
             day_num  = (today - games_start).days + 1
@@ -1306,7 +1318,7 @@ def main():
                 f'</div>',
                 unsafe_allow_html=True
             )
-       elif today < games_start:
+        elif today < games_start:
             time_remaining = games_start - today
             days = time_remaining.days
             hours = time_remaining.seconds // 3600
@@ -1316,16 +1328,6 @@ def main():
                 f'<div class="info-day-box">'
                 f'<div class="info-day-label">Milano Cortina 2026</div>'
                 f'<div class="info-day-num">{days}d {hours}h {minutes}m</div>'
-                f'<div class="info-day-date">Until the Games begin</div>'
-                f'</div>',
-                unsafe_allow_html=True
-            )
-
-                    
-            st.markdown(
-                f'<div class="info-day-box">'
-                f'<div class="info-day-label">Milano Cortina 2026</div>'
-                f'<div class="info-day-num">{countdown} days</div>'
                 f'<div class="info-day-date">Until the Games begin</div>'
                 f'</div>',
                 unsafe_allow_html=True
