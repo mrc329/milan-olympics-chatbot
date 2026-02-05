@@ -1307,7 +1307,19 @@ def main():
                 unsafe_allow_html=True
             )
         elif today < games_start:
-            countdown = (games_start - today).days
+            time_remaining = games_start - today
+            days = time_remaining.days
+            hours = time_remaining.seconds // 3600
+            minutes = (time_remaining.seconds % 3600) // 60
+            seconds = time_remaining.seconds % 60
+
+            # Show seconds only in final hour
+       if days == 0 and hours == 0:
+           countdown_display = f"{minutes}m {seconds}s"
+       else:
+           countdown_display = f"{days}d {hours}h {minutes}m"
+
+                    
             st.markdown(
                 f'<div class="info-day-box">'
                 f'<div class="info-day-label">Milano Cortina 2026</div>'
@@ -1325,7 +1337,7 @@ def main():
                 f'</div>',
                 unsafe_allow_html=True
             )
-
+      
         # gap between countdown and medal table
         st.markdown('<div style="height:0.8rem"></div>', unsafe_allow_html=True)
 
