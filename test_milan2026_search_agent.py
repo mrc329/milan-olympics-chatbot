@@ -13,7 +13,7 @@ import os
 # Import the search agent module
 # Adjust the import based on your actual module structure
 try:
-    from milan2026_search_agent__2_ import (
+    from milan2026_search_agent import (
         deterministic_id,
         truncate,
         strip_html,
