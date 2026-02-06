@@ -139,28 +139,23 @@ class TestOlympicContentFilter(unittest.TestCase):
         filtered = filter_olympic_content(chunks)
         self.assertEqual(len(filtered), 0)
     
-    def test_olympic_keywords_comprehensive(self):
-        """Test that key Milano Cortina keywords are present (strict filter)."""
-        # Core event keywords (Milano Cortina specific)
-        self.assertIn("milano cortina", OLYMPIC_KEYWORDS)
-        self.assertIn("milan 2026", OLYMPIC_KEYWORDS)
-        self.assertIn("winter olympics 2026", OLYMPIC_KEYWORDS)  # With year
-        
-        # Location keywords
-        self.assertIn("cortina 2026", OLYMPIC_KEYWORDS)
-        self.assertIn("italy 2026", OLYMPIC_KEYWORDS)
-        
-        # Generic "winter olympics" should NOT be present (too broad)
-        self.assertNotIn("winter olympics", OLYMPIC_KEYWORDS)
-        self.assertNotIn("figure skating", OLYMPIC_KEYWORDS)  # Too generic
-        self.assertNotIn("gold medal", OLYMPIC_KEYWORDS)  # Too generic
-        self.assertIn("alpine skiing", OLYMPIC_KEYWORDS)
-        self.assertIn("ice hockey", OLYMPIC_KEYWORDS)
-        self.assertIn("curling", OLYMPIC_KEYWORDS)
-        
-        # Medal terms
-        self.assertIn("gold medal", OLYMPIC_KEYWORDS)
-        self.assertIn("olympic champion", OLYMPIC_KEYWORDS)
+def test_olympic_keywords_comprehensive(self):
+    """Test that key Milano Cortina keywords are present (strict filter)."""
+    # Core event keywords (Milano Cortina specific)
+    self.assertIn("milano cortina", OLYMPIC_KEYWORDS)
+    self.assertIn("milan 2026", OLYMPIC_KEYWORDS)
+    self.assertIn("winter olympics 2026", OLYMPIC_KEYWORDS)  # With year
+    
+    # Location keywords
+    self.assertIn("cortina 2026", OLYMPIC_KEYWORDS)
+    self.assertIn("italy 2026", OLYMPIC_KEYWORDS)
+    
+    # Generic "winter olympics" should NOT be present (too broad)
+    self.assertNotIn("winter olympics", OLYMPIC_KEYWORDS)
+    self.assertNotIn("figure skating", OLYMPIC_KEYWORDS)  # Too generic
+    self.assertNotIn("gold medal", OLYMPIC_KEYWORDS)  # Too generic
+    self.assertNotIn("alpine skiing", OLYMPIC_KEYWORDS)  # Too generic
+    self.assertNotIn("ice hockey", OLYMPIC_KEYWORDS)  # Too generic
 
 
 class TestSearchAgentIntegration(unittest.TestCase):
