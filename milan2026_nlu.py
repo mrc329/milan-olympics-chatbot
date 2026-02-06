@@ -359,7 +359,9 @@ def analyze_content(text: str, title: str = "", min_quality: float = 0.3) -> Opt
 
 def enrich_metadata(nlu_result: NLUResult) -> dict:
     """Convert NLU result to metadata dict for Pinecone."""
-    return {
+    import json
+    
+    metadata = {
         "athletes": list(nlu_result.athletes),
         "countries": list(nlu_result.countries),
         "sports": list(nlu_result.sports),
@@ -368,5 +370,40 @@ def enrich_metadata(nlu_result: NLUResult) -> dict:
         "sentiment_score": nlu_result.sentiment_score,
         "quality_score": nlu_result.quality_score,
         "is_high_quality": nlu_result.is_high_quality,
-        "key_phrases": nlu_result.key_phrases[:3],  # Limit to 3 for Pinecone
+        "key_phrases": nlu_result.key_phrases[:3],
     }
+    
+    # Ensure all values are Pinecone-compatible
+    return serialize_metadata_for_pinecone(metadata)
+
+def serialize_metadata_for_pinecone(metadata: dict) -> dict:
+    """
+    Ensure all metadata values are Pinecone-compatible.
+    Pinecone accepts: string, number, boolean, or list of strings.
+    Complex objects (dicts, list of dicts) must be JSON-serialized.
+    """
+    import json
+    
+    result = {}
+    for key, value in metadata.items():
+        if value is None:
+            continue
+        elif isinstance(value, (str, int, float, bool)):
+            # Simple types: keep as-is
+            result[key] = value
+        elif isinstance(value, list):
+            # Check if it's a list of simple types
+            if all(isinstance(item, str) for item in value):
+                # List of strings: keep as-is
+                result[key] = value
+            else:
+                # List of complex types: serialize to JSON
+                result[key] = json.dumps(value)
+        elif isinstance(value, dict):
+            # Dict: serialize to JSON
+            result[key] = json.dumps(value)
+        else:
+            # Unknown type: convert to string
+            result[key] = str(value)
+    
+    return result
