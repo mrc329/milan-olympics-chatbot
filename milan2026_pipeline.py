@@ -52,6 +52,7 @@ import re
 import requests
 import pandas as pd
 from io import StringIO
+import json
 
 # ─────────────────────────────────────────────
 # LOGGING
@@ -518,18 +519,26 @@ def upsert_injury(injury: dict):
         **freshness_metadata(injury.get("source", "team_report"), "very_high"),
     })
 
-def upsert_event(event_name: str, medalists: list[dict]):
-    vid = f"event::{slug(event_name)}"
-    lines = [f"{m['rank']}. {m['name']} ({m['country']})" for m in medalists]
-    text  = f"Event results — {event_name}\n" + "\n".join(lines)
-    upsert_document(vid, text, {
-        "doc_type":  "event_result",
-        "event":     event_name,
-        "medalists": medalists,
-        **freshness_metadata("wikipedia", "low"),
-    })
-    EVENT_RESULTS_THIS_RUN[event_name] = medalists
-
+def upsert_event(event_name, medalists):
+    """Upsert event with medalist data."""
+    vid = f"event::{event_name}"
+    
+    # Create text description
+    text = f"Event: {event_name}. "
+    if medalists:
+        text += "Medalists: " + ", ".join([
+            f"{m['name']} ({m['country']}) - {m['medal']}"
+            for m in medalists
+        ])
+    
+    metadata = {
+        "event": event_name,
+        "medalists": json.dumps(medalists) if medalists else "[]",
+        "doc_type": "event",
+        # ... other metadata
+    }
+    
+    upsert_document(vid, text, metadata)
 def upsert_athlete(athlete: dict):
     name      = athlete["name"]
     vid       = f"athlete::{slug(name)}"
