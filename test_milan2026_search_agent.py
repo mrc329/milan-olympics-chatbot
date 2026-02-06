@@ -27,7 +27,7 @@ except ImportError:
     import importlib.util
     spec = importlib.util.spec_from_file_location(
         "search_agent", 
-        os.path.join(os.path.dirname(__file__), "milan2026_search_agent__2_.py")
+        os.path.join(os.path.dirname(__file__), "milan2026_search_agent.py")
     )
     search_agent = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(search_agent)
@@ -220,12 +220,12 @@ class TestConfiguration(unittest.TestCase):
         """Test that namespace is set correctly."""
         # Import namespace from module
         try:
-            from milan2026_search_agent__2_ import NAMESPACE
+            from milan2026_search_agent import NAMESPACE
         except ImportError:
             import importlib.util
             spec = importlib.util.spec_from_file_location(
                 "search_agent", 
-                os.path.join(os.path.dirname(__file__), "milan2026_search_agent__2_.py")
+                os.path.join(os.path.dirname(__file__), "milan2026_search_agent.py")
             )
             search_agent = importlib.util.module_from_spec(spec)
             spec.loader.exec_module(search_agent)
