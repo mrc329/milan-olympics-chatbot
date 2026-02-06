@@ -521,13 +521,19 @@ def upsert_injury(injury: dict):
 
 def upsert_event(event_name, medalists):
     """Upsert event with medalist data."""
-    vid = f"event::{event_name}"
+    vid = f"event::{slug(event_name)}"
+    
+    # Store results for athlete enrichment
+    EVENT_RESULTS_THIS_RUN[event_name] = medalists
+    
+    # Convert rank to medal name
+    medal_names = {1: "Gold", 2: "Silver", 3: "Bronze"}
     
     # Create text description
     text = f"Event: {event_name}. "
     if medalists:
         text += "Medalists: " + ", ".join([
-            f"{m['name']} ({m['country']}) - {m['medal']}"
+            f"{m['name']} ({m['country']}) - {medal_names.get(m['rank'], 'Medal')}"
             for m in medalists
         ])
     
@@ -535,7 +541,7 @@ def upsert_event(event_name, medalists):
         "event": event_name,
         "medalists": json.dumps(medalists) if medalists else "[]",
         "doc_type": "event",
-        # ... other metadata
+        **freshness_metadata("results_scraper", "very_high"),
     }
     
     upsert_document(vid, text, metadata)
