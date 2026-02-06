@@ -259,7 +259,7 @@ def parse_rss_feed(feed_def: dict) -> list[dict]:
 # ═══════════════════════════════════════════════════════════
 OLYMPIC_KEYWORDS = {
     # Event-specific (Milan 2026 only)
-    "milano cortina", "milan cortina", "milano 2026", "milan 2026",
+    "milano cortina", "milan cortina", "milano 2026", "alpine skiing", "milan 2026",
     "cortina 2026", "winter olympics 2026", "olympic winter games 2026",
     # STRICT - Only Milano Cortina 2026 specific content
     # Removed generic terms that match any Olympics (too many false positives)
