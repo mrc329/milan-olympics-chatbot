@@ -37,7 +37,7 @@ jobs:
         run: |
           pip install --upgrade pip
           # Install in order to avoid conflicts
-          pip install sentence-transformers pinecone-client pandas
+          pip install sentence-transformers pinecone pandas
           pip install --upgrade "transformers>=4.35.0" "huggingface-hub>=0.20.0"
           pip install ragas datasets langchain-huggingface
       
