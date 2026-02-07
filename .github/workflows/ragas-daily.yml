@@ -36,8 +36,10 @@ jobs:
       - name: Install dependencies
         run: |
           pip install --upgrade pip
-          pip install -r requirements.txt
-          pip install ragas datasets langchain langchain-huggingface
+          # Install in order to avoid conflicts
+          pip install sentence-transformers pinecone-client pandas
+          pip install --upgrade "transformers>=4.35.0" "huggingface-hub>=0.20.0"
+          pip install ragas datasets langchain-huggingface
       
       - name: Run RAGAS evaluation
         env:
