@@ -25,21 +25,17 @@ jobs:
         with:
           python-version: '3.11'
       
-      - name: Cache Python dependencies
-        uses: actions/cache@v4
-        with:
-          path: ~/.cache/pip
-          key: ${{ runner.os }}-pip-${{ hashFiles('requirements.txt') }}
-          restore-keys: |
-            ${{ runner.os }}-pip-
+      # Remove cache step to force fresh install
       
       - name: Install dependencies
         run: |
           pip install --upgrade pip
-          # Install in order to avoid conflicts
-          pip install sentence-transformers pinecone pandas
-          pip install --upgrade "transformers>=4.35.0" "huggingface-hub>=0.20.0"
-          pip install ragas datasets langchain-huggingface
+          # Clear any cached packages
+          pip cache purge || true
+          # Install compatible versions in correct order
+          pip install --no-cache-dir "transformers==4.40.2" "huggingface-hub==0.22.2" "tokenizers==0.19.1"
+          pip install --no-cache-dir sentence-transformers pinecone pandas
+          pip install --no-cache-dir ragas datasets langchain-huggingface
       
       - name: Run RAGAS evaluation
         env:
