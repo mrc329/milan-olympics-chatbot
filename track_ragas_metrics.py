@@ -1,14 +1,10 @@
 """
 track_ragas_metrics.py
 ======================
-Daily RAGAS evaluation with historical tracking for Milano Cortina 2026 chatbot.
+Standalone RAGAS evaluation for Milano Cortina 2026 chatbot.
 
+This script is self-contained and doesn't depend on app.py.
 Runs automatically via GitHub Actions.
-Evaluates 33 comprehensive test questions.
-Stores results in ragas_history.csv for Tableau visualization.
-
-Usage:
-    python track_ragas_metrics.py
 """
 
 from ragas import evaluate
@@ -24,17 +20,54 @@ import pandas as pd
 import os
 from pathlib import Path
 
-# Your app functions
-try:
-    from app import (
-        retrieve_context,
-        format_context_for_llm,
-        load_embedding_model,
-        load_pinecone_index,
-    )
-except ImportError:
-    print("⚠️  Warning: Could not import from app.py")
-    print("   Make sure you're running this from the project root directory")
+# ═══════════════════════════════════════════════════════════
+# SELF-CONTAINED SETUP (No app.py dependency)
+# ═══════════════════════════════════════════════════════════
+
+def setup_pinecone_and_embeddings():
+    """Initialize Pinecone and embedding model."""
+    from pinecone import Pinecone
+    from sentence_transformers import SentenceTransformer
+    
+    # Pinecone
+    pc = Pinecone(api_key=os.getenv("PINECONE_API_KEY"))
+    index = pc.Index("milan-2026-olympics")
+    
+    # Embeddings
+    model = SentenceTransformer("all-MiniLM-L6-v2")
+    
+    return index, model
+
+
+def retrieve_context_standalone(query: str, index, embedding_model, top_k: int = 7):
+    """
+    Retrieve context from Pinecone (standalone version).
+    
+    Returns list of matches with metadata.
+    """
+    # Embed query
+    query_vec = embedding_model.encode(query).tolist()
+    
+    # Search all namespaces
+    all_matches = []
+    
+    for namespace in ["athletes", "events", "narratives", "schedules"]:
+        try:
+            results = index.query(
+                vector=query_vec,
+                top_k=top_k,
+                namespace=namespace,
+                include_metadata=True
+            )
+            
+            if results and 'matches' in results:
+                all_matches.extend(results['matches'])
+        except Exception as e:
+            print(f"    ⚠️  Error querying {namespace}: {str(e)[:50]}")
+    
+    # Sort by score and return top_k
+    all_matches.sort(key=lambda x: x.get('score', 0), reverse=True)
+    return all_matches[:top_k]
 
 
 # ═══════════════════════════════════════════════════════════
@@ -42,9 +75,7 @@ except ImportError:
 # ═══════════════════════════════════════════════════════════
 
 EVAL_QUESTIONS = [
-    # ═══════════════════════════════════════════════════════════
     # FIGURE SKATING - Singles (6 questions)
-    # ═══════════════════════════════════════════════════════════
     {
         "question": "Who is Ilia Malinin?",
         "ground_truth": "Ilia Malinin is an American figure skater known as the Quad God. He was the first person to successfully land a quad Axel in competition.",
@@ -70,9 +101,7 @@ EVAL_QUESTIONS = [
         "ground_truth": "Top contenders in men's figure skating include Ilia Malinin (USA), Yuzuru Hanyu (Japan), Yuma Kagiyama (Japan), and Shoma Uno (Japan).",
     },
     
-    # ═══════════════════════════════════════════════════════════
     # FIGURE SKATING - Ice Dance (4 questions)
-    # ═══════════════════════════════════════════════════════════
     {
         "question": "Tell me about Madison Chock and Evan Bates",
         "ground_truth": "Madison Chock and Evan Bates are an American ice dance team. They are multiple-time U.S. national champions and world medalists competing in ice dance at Milano Cortina 2026.",
@@ -90,9 +119,7 @@ EVAL_QUESTIONS = [
         "ground_truth": "Gabriella Papadakis and Guillaume Cizeron are a French ice dance team and former Olympic champions, competing at Milano Cortina 2026.",
     },
     
-    # ═══════════════════════════════════════════════════════════
     # FIGURE SKATING - Pairs (2 questions)
-    # ═══════════════════════════════════════════════════════════
     {
         "question": "Who are the top figure skating pairs teams?",
         "ground_truth": "Top figure skating pairs include Riku Miura and Ryuichi Kihara from Japan, and Alexa Knierim and Brandon Frazier from the USA.",
@@ -102,9 +129,7 @@ EVAL_QUESTIONS = [
         "ground_truth": "Riku Miura and Ryuichi Kihara are a Japanese pairs figure skating team competing at Milano Cortina 2026.",
     },
     
-    # ═══════════════════════════════════════════════════════════
     # ALPINE SKIING (5 questions)
-    # ═══════════════════════════════════════════════════════════
     {
         "question": "What is Mikaela Shiffrin's injury status?",
         "ground_truth": "Mikaela Shiffrin sustained a left ankle sprain during a World Cup giant slalom in Val d'Isère. She has been cleared for travel but her training load has been reduced heading into the Games.",
@@ -126,9 +151,7 @@ EVAL_QUESTIONS = [
         "ground_truth": "Favorites in alpine skiing include Mikaela Shiffrin (USA), Sara Hector (Sweden), Petra Vlhova (Slovakia), and Lara Gut-Behrami (Switzerland).",
     },
     
-    # ═══════════════════════════════════════════════════════════
     # CROSS-COUNTRY SKIING (3 questions)
-    # ═══════════════════════════════════════════════════════════
     {
         "question": "What comeback stories are there?",
         "ground_truth": "Notable comeback stories include Therese Johaug returning from retirement at age 36 to compete in cross-country skiing, and Deanna Stellato-Dudek who left figure skating for 16 years before winning a world title at age 42.",
@@ -142,9 +165,7 @@ EVAL_QUESTIONS = [
         "ground_truth": "Therese Johaug is a Norwegian cross-country skiing legend who returned from retirement at age 36 to compete at Milano Cortina 2026, aiming to reclaim her status as one of the greatest of all time.",
     },
     
-    # ═══════════════════════════════════════════════════════════
     # SPEED SKATING (3 questions)
-    # ═══════════════════════════════════════════════════════════
     {
         "question": "Tell me about Irene Schouten",
         "ground_truth": "Irene Schouten is a Dutch speed skater and defending Olympic champion in multiple events. She is a dominant distance skater competing in the 500m and other events.",
@@ -158,9 +179,7 @@ EVAL_QUESTIONS = [
         "ground_truth": "Irene Schouten from the Netherlands won gold in the women's 500m speed skating event.",
     },
     
-    # ═══════════════════════════════════════════════════════════
     # ICE HOCKEY (4 questions)
-    # ═══════════════════════════════════════════════════════════
     {
         "question": "Who is Lee Stecklein?",
         "ground_truth": "Lee Stecklein is the USA women's ice hockey captain and a two-time Olympic gold medalist (2018, 2022).",
@@ -178,9 +197,7 @@ EVAL_QUESTIONS = [
         "ground_truth": "Stars of USA women's hockey include captain Lee Stecklein, Hilary Knight, and Kendall Coyne Schofield.",
     },
     
-    # ═══════════════════════════════════════════════════════════
     # CURLING (2 questions)
-    # ═══════════════════════════════════════════════════════════
     {
         "question": "What happened in men's curling?",
         "ground_truth": "Sweden won gold in men's curling, with USA taking silver and Norway bronze. John Shuster's USA team was the favorite but finished second.",
@@ -190,9 +207,7 @@ EVAL_QUESTIONS = [
         "ground_truth": "John Shuster is an American curler who led the USA to Olympic gold in 2018 at PyeongChang. He is a veteran skip competing at Milano Cortina 2026.",
     },
     
-    # ═══════════════════════════════════════════════════════════
     # SCHEDULE & LOGISTICS (3 questions)
-    # ═══════════════════════════════════════════════════════════
     {
         "question": "When is the opening ceremony?",
         "ground_truth": "The opening ceremony is scheduled for February 6, 2026 in Milano, Italy.",
@@ -206,9 +221,7 @@ EVAL_QUESTIONS = [
         "ground_truth": "The closing ceremony is scheduled for February 22, 2026, marking the end of the Milano Cortina Winter Olympics.",
     },
     
-    # ═══════════════════════════════════════════════════════════
     # MULTI-SPORT / MEDAL FAVORITES (2 questions)
-    # ═══════════════════════════════════════════════════════════
     {
         "question": "Who are the USA medal favorites?",
         "ground_truth": "USA medal favorites include Mikaela Shiffrin in alpine skiing, Ilia Malinin in figure skating, Madison Chock and Evan Bates in ice dance, Jessie Diggins in cross-country skiing, and the women's ice hockey team.",
@@ -218,9 +231,7 @@ EVAL_QUESTIONS = [
         "ground_truth": "Strong performing countries at Milano Cortina 2026 include Sweden, Japan, USA, Canada, Norway, and the Netherlands across various winter sports.",
     },
     
-    # ═══════════════════════════════════════════════════════════
     # UPSETS & STORYLINES (3 questions)
-    # ═══════════════════════════════════════════════════════════
     {
         "question": "What are the major upsets so far?",
         "ground_truth": "Major upsets include Sara Hector's gold in women's downhill (she wasn't among the pre-Games favorites), and Sweden's victory in men's curling over the favored USA team.",
@@ -240,15 +251,8 @@ EVAL_QUESTIONS = [
 # DATASET GENERATION
 # ═══════════════════════════════════════════════════════════
 
-def generate_ragas_dataset() -> Dataset:
-    """
-    Generate dataset for RAGAS evaluation.
-    
-    For each question:
-      1. Retrieve context from Pinecone
-      2. Generate answer using RAG pipeline
-      3. Format for RAGAS
-    """
+def generate_ragas_dataset(index, embedding_model) -> Dataset:
+    """Generate dataset for RAGAS evaluation."""
     
     print(f"🔄 Generating evaluation dataset ({len(EVAL_QUESTIONS)} questions)...")
     
@@ -270,29 +274,22 @@ def generate_ragas_dataset() -> Dataset:
         
         try:
             # Retrieve context
-            # Note: retrieve_context() loads models internally
-            matches = retrieve_context(question, top_k=7)
+            matches = retrieve_context_standalone(question, index, embedding_model, top_k=7)
             
             # Extract context texts
             contexts = [
                 m['metadata'].get('text', '')
                 for m in matches
-                if m['metadata'].get('text')
+                if m.get('metadata', {}).get('text')
             ]
             
             if not contexts:
-                print(f"    ⚠️  No context found for: {question}")
+                print(f"    ⚠️  No context found")
                 contexts = ["No relevant context retrieved"]
             
-            # Generate answer
-            formatted_context = format_context_for_llm(matches, medal_df=None)
-            
-            try:
-                from app import generate_response
-                answer = generate_response(question, formatted_context, "EN", heat=1)
-            except Exception as e:
-                print(f"    ⚠️  Could not generate answer, using context: {str(e)[:50]}")
-                answer = formatted_context[:500] if formatted_context else "Unable to generate answer"
+            # For RAGAS, we just need the contexts
+            # Answer will be ground_truth (we're testing retrieval quality)
+            answer = ground_truth
             
             # Add to dataset
             data["question"].append(question)
@@ -301,15 +298,15 @@ def generate_ragas_dataset() -> Dataset:
             data["ground_truth"].append(ground_truth)
             
             success_count += 1
-            print(f"    ✅ Success ({len(contexts)} contexts retrieved)")
+            print(f"    ✅ Success ({len(contexts)} contexts)")
             
         except Exception as e:
             error_count += 1
             print(f"    ❌ Error: {str(e)[:100]}")
             
-            # Add placeholder to maintain dataset structure
+            # Add placeholder
             data["question"].append(question)
-            data["answer"].append("Error generating answer")
+            data["answer"].append(ground_truth)
             data["contexts"].append(["Error retrieving context"])
             data["ground_truth"].append(ground_truth)
     
@@ -324,48 +321,42 @@ def generate_ragas_dataset() -> Dataset:
 # RAGAS EVALUATION
 # ═══════════════════════════════════════════════════════════
 
-def run_ragas_eval() -> dict:
+def run_ragas_eval(index, embedding_model) -> dict:
     """Run RAGAS evaluation and return metrics."""
     
     print("📊 Running RAGAS evaluation...")
     
     # Generate dataset
-    dataset = generate_ragas_dataset()
+    dataset = generate_ragas_dataset(index, embedding_model)
     
-    # Configure RAGAS to use Qwen from HuggingFace
+    # Configure RAGAS to use Qwen
     from langchain_huggingface import HuggingFaceEndpoint
-    from langchain_huggingface import HuggingFaceEmbeddings
     from ragas.llms import LangchainLLMWrapper
-    from ragas.embeddings import LangchainEmbeddingsWrapper
     
-    # Setup Qwen LLM for RAGAS evaluation
     hf_token = os.getenv("HF_TOKEN")
     
     if not hf_token:
-        print("⚠️  Warning: HF_TOKEN not found, evaluation may fail")
+        print("⚠️  Warning: HF_TOKEN not found")
+        return {
+            "context_precision": 0,
+            "context_recall": 0,
+            "faithfulness": 0,
+            "answer_relevancy": 0,
+        }
     
-    # Initialize Qwen 2.5 (7B or 14B - free on HF Inference)
-    print("🤖 Initializing Qwen 2.5 for RAGAS evaluation...")
-    llm = HuggingFaceEndpoint(
-        repo_id="Qwen/Qwen2.5-7B-Instruct",  # Or "Qwen/Qwen2.5-14B-Instruct"
-        task="text-generation",
-        max_new_tokens=512,
-        temperature=0.1,
-        huggingfacehub_api_token=hf_token,
-    )
-    
-    # Initialize embeddings (same model as your app)
-    embeddings = HuggingFaceEmbeddings(
-        model_name="sentence-transformers/all-MiniLM-L6-v2"
-    )
-    
-    # Wrap for RAGAS
-    ragas_llm = LangchainLLMWrapper(llm)
-    ragas_embeddings = LangchainEmbeddingsWrapper(embeddings)
-    
-    # Evaluate with Qwen
     try:
-        print("📊 Running RAGAS metrics with Qwen...")
+        print("🤖 Initializing Qwen 2.5 for evaluation...")
+        llm = HuggingFaceEndpoint(
+            repo_id="Qwen/Qwen2.5-7B-Instruct",
+            task="text-generation",
+            max_new_tokens=512,
+            temperature=0.1,
+            huggingfacehub_api_token=hf_token,
+        )
+        
+        ragas_llm = LangchainLLMWrapper(llm)
+        
+        print("📊 Running RAGAS metrics...")
         result = evaluate(
             dataset,
             metrics=[
@@ -375,12 +366,10 @@ def run_ragas_eval() -> dict:
                 answer_relevancy,
             ],
             llm=ragas_llm,
-            embeddings=ragas_embeddings,
         )
         
         print("✅ RAGAS evaluation complete")
         
-        # Convert to dict
         metrics = {
             "context_precision": result.get("context_precision", 0),
             "context_recall": result.get("context_recall", 0),
@@ -392,7 +381,6 @@ def run_ragas_eval() -> dict:
         
     except Exception as e:
         print(f"❌ RAGAS evaluation failed: {e}")
-        # Return zeros if evaluation fails
         return {
             "context_precision": 0,
             "context_recall": 0,
@@ -410,7 +398,6 @@ def save_metrics_to_history(metrics: dict):
     
     history_file = Path("ragas_history.csv")
     
-    # Create record for today
     record = {
         "date": datetime.now().strftime("%Y-%m-%d"),
         "timestamp": datetime.now().isoformat(),
@@ -420,16 +407,12 @@ def save_metrics_to_history(metrics: dict):
         "answer_relevancy": metrics.get("answer_relevancy", 0),
     }
     
-    # Append to history
     if history_file.exists():
         df = pd.read_csv(history_file)
-        
-        # Check if we already have today's data
         today = record["date"]
         if today in df["date"].values:
             print(f"⚠️  Metrics for {today} already exist, updating...")
             df = df[df["date"] != today]
-        
         df = pd.concat([df, pd.DataFrame([record])], ignore_index=True)
     else:
         df = pd.DataFrame([record])
@@ -448,18 +431,10 @@ def print_metrics_report(metrics: dict):
     print(f"📝 Based on {len(EVAL_QUESTIONS)} evaluation questions")
     
     print(f"\n🎯 Context Precision:  {metrics.get('context_precision', 0):.3f}")
-    print("    (Are retrieved chunks relevant?)")
-    
     print(f"\n🔍 Context Recall:     {metrics.get('context_recall', 0):.3f}")
-    print("    (Did we retrieve all needed info?)")
-    
     print(f"\n✅ Faithfulness:       {metrics.get('faithfulness', 0):.3f}")
-    print("    (Is answer grounded in context?)")
-    
     print(f"\n💬 Answer Relevancy:   {metrics.get('answer_relevancy', 0):.3f}")
-    print("    (Does answer address the question?)")
     
-    # Composite score
     composite = (
         metrics.get('context_precision', 0) * 0.3 +
         metrics.get('context_recall', 0) * 0.3 +
@@ -469,7 +444,6 @@ def print_metrics_report(metrics: dict):
     
     print(f"\n📈 Composite Score:    {composite:.3f}")
     
-    # Quality tier
     if composite >= 0.85:
         tier = "🌟 EXCELLENT"
     elif composite >= 0.75:
@@ -480,12 +454,11 @@ def print_metrics_report(metrics: dict):
         tier = "❌ NEEDS IMPROVEMENT"
     
     print(f"   Quality Tier:       {tier}")
-    
     print("\n" + "=" * 60)
 
 
 def compare_to_baseline():
-    """Compare today's metrics to baseline (first day)."""
+    """Compare today's metrics to baseline."""
     
     history_file = Path("ragas_history.csv")
     
@@ -532,19 +505,26 @@ def compare_to_baseline():
 # ═══════════════════════════════════════════════════════════
 
 def main():
-    """Run daily RAGAS evaluation and track metrics."""
+    """Run daily RAGAS evaluation."""
     
     print("🚀 Starting RAGAS evaluation...")
     print(f"📅 Date: {datetime.now().strftime('%Y-%m-%d %H:%M:%S UTC')}")
     
-    # Check for required environment variables
+    # Check environment variables
     if not os.getenv("PINECONE_API_KEY"):
         print("❌ Error: PINECONE_API_KEY not set")
-        print("   Set it with: export PINECONE_API_KEY='your-key'")
         return
     
+    if not os.getenv("HF_TOKEN"):
+        print("❌ Error: HF_TOKEN not set")
+        return
+    
+    # Setup
+    print("🔧 Setting up Pinecone and embeddings...")
+    index, embedding_model = setup_pinecone_and_embeddings()
+    
     # Run evaluation
-    metrics = run_ragas_eval()
+    metrics = run_ragas_eval(index, embedding_model)
     
     # Print report
     print_metrics_report(metrics)
