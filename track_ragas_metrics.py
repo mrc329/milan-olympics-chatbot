@@ -12,7 +12,7 @@ Usage:
 """
 
 from ragas import evaluate
-from ragas.metrics import (
+from ragas.metrics.collections import (
     context_precision,
     context_recall,
     faithfulness,
@@ -252,14 +252,6 @@ def generate_ragas_dataset() -> Dataset:
     
     print(f"🔄 Generating evaluation dataset ({len(EVAL_QUESTIONS)} questions)...")
     
-    # Load models
-    try:
-        embedding_model = load_embedding_model()
-        pinecone_index = load_pinecone_index()
-    except Exception as e:
-        print(f"❌ Error loading models: {e}")
-        raise
-    
     data = {
         "question": [],
         "answer": [],
@@ -278,12 +270,8 @@ def generate_ragas_dataset() -> Dataset:
         
         try:
             # Retrieve context
-            matches = retrieve_context(
-                question, 
-                top_k=7,
-                embedding_model=embedding_model,
-                pinecone_index=pinecone_index
-            )
+            # Note: retrieve_context() loads models internally
+            matches = retrieve_context(question, top_k=7)
             
             # Extract context texts
             contexts = [
@@ -344,8 +332,40 @@ def run_ragas_eval() -> dict:
     # Generate dataset
     dataset = generate_ragas_dataset()
     
-    # Evaluate
+    # Configure RAGAS to use Qwen from HuggingFace
+    from langchain_huggingface import HuggingFaceEndpoint
+    from langchain_huggingface import HuggingFaceEmbeddings
+    from ragas.llms import LangchainLLMWrapper
+    from ragas.embeddings import LangchainEmbeddingsWrapper
+    
+    # Setup Qwen LLM for RAGAS evaluation
+    hf_token = os.getenv("HF_TOKEN")
+    
+    if not hf_token:
+        print("⚠️  Warning: HF_TOKEN not found, evaluation may fail")
+    
+    # Initialize Qwen 2.5 (7B or 14B - free on HF Inference)
+    print("🤖 Initializing Qwen 2.5 for RAGAS evaluation...")
+    llm = HuggingFaceEndpoint(
+        repo_id="Qwen/Qwen2.5-7B-Instruct",  # Or "Qwen/Qwen2.5-14B-Instruct"
+        task="text-generation",
+        max_new_tokens=512,
+        temperature=0.1,
+        huggingfacehub_api_token=hf_token,
+    )
+    
+    # Initialize embeddings (same model as your app)
+    embeddings = HuggingFaceEmbeddings(
+        model_name="sentence-transformers/all-MiniLM-L6-v2"
+    )
+    
+    # Wrap for RAGAS
+    ragas_llm = LangchainLLMWrapper(llm)
+    ragas_embeddings = LangchainEmbeddingsWrapper(embeddings)
+    
+    # Evaluate with Qwen
     try:
+        print("📊 Running RAGAS metrics with Qwen...")
         result = evaluate(
             dataset,
             metrics=[
@@ -354,6 +374,8 @@ def run_ragas_eval() -> dict:
                 faithfulness,
                 answer_relevancy,
             ],
+            llm=ragas_llm,
+            embeddings=ragas_embeddings,
         )
         
         print("✅ RAGAS evaluation complete")
