@@ -21,6 +21,7 @@ import requests
 import logging
 import time
 import os
+import io
 from datetime import datetime
 from sentence_transformers import SentenceTransformer
 from pinecone import Pinecone
@@ -245,7 +246,7 @@ def fetch_live_medals():
         resp.raise_for_status()
         html = resp.json().get("parse", {}).get("text", {}).get("*", "")
 
-        for tbl in pd.read_html(html):
+        for tbl in pd.read_html(io.StringIO(html)):
             cols = [str(c).lower() for c in tbl.columns]
             if "gold" in cols and "silver" in cols and "bronze" in cols:
                 tbl.columns = [str(c).strip() for c in tbl.columns]
@@ -257,7 +258,11 @@ def fetch_live_medals():
 
     except Exception as e:
         logger.error(f"Medal fetch error: {e}")
-        return None, datetime.now().strftime("%I:%M %p"), str(e)
+        # Truncate error — str(e) can contain raw HTML from Wikipedia response
+        err_msg = str(e)
+        if len(err_msg) > 120 or "<" in err_msg:
+            err_msg = "Medal data temporarily unavailable."
+        return None, datetime.now().strftime("%I:%M %p"), err_msg
 
 
 def get_pinecone_vector_count():
@@ -989,6 +994,197 @@ hr { border: none; border-top: 1px solid #E8ECEE !important; margin: 0.8rem 0 !i
 
 /* -- Streamlit spinner tint -- */
 .stSpinner > div { border-color: #00818A !important; }
+
+/* ============================================================
+ * RESPONSIVE - TABLET / iPAD
+ * Streamlit columns don't stack automatically at tablet widths
+ * (~768px–1024px). These rules tighten spacing and ensure the
+ * info panel content stays readable without overflowing.
+ * ============================================================ */
+
+/* iPad portrait & small tablets (≤ 900px) */
+@media screen and (max-width: 900px) {
+    /* Tighten the overall container padding */
+    .block-container {
+        padding-left: 0.75rem !important;
+        padding-right: 0.75rem !important;
+        max-width: 100% !important;
+    }
+
+    /* Stack Streamlit columns vertically */
+    [data-testid="stHorizontalBlock"] {
+        flex-direction: column !important;
+    }
+    [data-testid="stHorizontalBlock"] > [data-testid="stColumn"],
+    [data-testid="stHorizontalBlock"] > [data-testid="column"] {
+        width: 100% !important;
+        flex: 1 1 100% !important;
+        min-width: 0 !important;
+    }
+
+    /* Shrink header for narrower screens */
+    .header-band h1 { font-size: 1.6rem !important; }
+    .header-band { padding: 1.6rem 1rem 1.4rem !important; }
+
+    /* Suggestion pills: 2 per row on narrow screens */
+    [data-testid="stHorizontalBlock"] .stButton button {
+        font-size: 0.72rem !important;
+    }
+
+    /* Keep medal table readable */
+    .medal-table { font-size: 0.75rem; }
+    .medal-country { font-size: 0.72rem !important; }
+    .medal-num { font-size: 0.75rem !important; }
+
+    /* Stat cards: prevent text overflow */
+    .stat-card .stat-val { font-size: 1.2rem !important; }
+    .stat-card .stat-label { font-size: 0.55rem !important; }
+
+    /* Info day box: tighter padding */
+    .info-day-box { padding: 1.1rem 0.8rem 1rem !important; }
+    .info-day-box .info-day-num { font-size: 2rem !important; }
+}
+
+/* iPad landscape (901px – 1180px): keep two columns but tighten */
+@media screen and (min-width: 901px) and (max-width: 1180px) {
+    .block-container {
+        padding-left: 1rem !important;
+        padding-right: 1rem !important;
+    }
+    .header-band h1 { font-size: 1.9rem !important; }
+    .medal-country { font-size: 0.72rem !important; }
+    .medal-num { font-size: 0.75rem !important; }
+    .stat-card .stat-val { font-size: 1.3rem !important; }
+}
+
+/* Prevent any block from forcing horizontal scroll on small viewports */
+@media screen and (max-width: 1180px) {
+    body, .stApp { overflow-x: hidden !important; }
+    .block-container { overflow-x: hidden !important; }
+
+    /* Text input: full-width touch target */
+    .stTextInput input {
+        min-height: 52px !important;
+        font-size: 1rem !important;
+    }
+
+    /* Larger tap targets for buttons on touch screens */
+    .stButton button { min-height: 48px !important; }
+
+    /* Language flag buttons: shrink label font */
+    .lang-btn { font-size: 0.75rem !important; }
+}
+
+/* ============================================================
+ * RESPONSIVE - PHONE
+ * ≤ 640px  covers most phones in portrait (375–430px wide)
+ * ≤ 480px  covers small/older phones (iPhone SE, Galaxy A)
+ * ============================================================ */
+
+/* All phones (≤ 640px) */
+@media screen and (max-width: 640px) {
+    /* Minimal side padding so content fills the screen */
+    .block-container {
+        padding-left: 0.4rem !important;
+        padding-right: 0.4rem !important;
+        padding-top: 0 !important;
+        max-width: 100% !important;
+    }
+
+    /* Compact header */
+    .header-band {
+        padding: 1.1rem 0.75rem 1rem !important;
+    }
+    .header-band h1 {
+        font-size: 1.25rem !important;
+        letter-spacing: 0.04em !important;
+    }
+    .header-band .tagline {
+        font-size: 0.75rem !important;
+        margin-top: 0.3rem !important;
+    }
+    .gap-below-header { height: 1rem !important; }
+
+    /* Suggestion pills: single column on phones */
+    [data-testid="stHorizontalBlock"] {
+        flex-direction: column !important;
+        gap: 0.4rem !important;
+    }
+    [data-testid="stHorizontalBlock"] > [data-testid="stColumn"],
+    [data-testid="stHorizontalBlock"] > [data-testid="column"] {
+        width: 100% !important;
+        flex: 1 1 100% !important;
+        min-width: 0 !important;
+    }
+
+    /* Pills: full-width, bigger touch target */
+    .stButton button {
+        min-height: 52px !important;
+        font-size: 0.82rem !important;
+        padding: 0.6rem 0.5rem !important;
+        border-radius: 10px !important;
+    }
+
+    /* Chat input: larger on phone */
+    .stTextInput input {
+        min-height: 56px !important;
+        font-size: 1rem !important;
+        border-radius: 10px !important;
+    }
+
+    /* Chat bubbles: slightly smaller text, full width */
+    .bubble {
+        font-size: 0.88rem !important;
+        padding: 0.75rem 0.85rem !important;
+        border-radius: 8px !important;
+    }
+    .bubble .speaker { font-size: 0.62rem !important; }
+
+    /* User bubble */
+    .user-bubble {
+        font-size: 0.84rem !important;
+        padding: 0.45rem 0.7rem !important;
+    }
+
+    /* Info panel: compact */
+    .info-day-box {
+        padding: 0.85rem 0.7rem 0.8rem !important;
+        border-radius: 10px !important;
+    }
+    .info-day-box .info-day-label { font-size: 0.58rem !important; }
+    .info-day-box .info-day-num   { font-size: 1.7rem !important; }
+    .info-day-box .info-day-date  { font-size: 0.7rem !important; }
+
+    /* Medal table: squeeze to fit narrow screen */
+    .medal-table { font-size: 0.7rem !important; }
+    .medal-th    { font-size: 0.55rem !important; padding: 0.4rem 0.2rem !important; }
+    .medal-country { font-size: 0.68rem !important; padding: 0.4rem 0.35rem !important; }
+    .medal-num   { font-size: 0.7rem !important;  padding: 0.4rem 0.2rem !important; }
+
+    /* Stat cards side by side still, but smaller */
+    .stat-row { gap: 0.45rem !important; }
+    .stat-card { padding: 0.5rem 0.3rem !important; border-radius: 8px !important; }
+    .stat-card .stat-val   { font-size: 1.1rem !important; }
+    .stat-card .stat-label { font-size: 0.5rem !important; }
+
+    /* Section headings */
+    .sidebar-heading { font-size: 0.65rem !important; }
+
+    /* Conversation log: shorter on phones */
+    .conv-log { max-height: 160px !important; font-size: 0.62rem !important; }
+
+    /* Slider: hide label text to save space */
+    .stSlider [data-testid="stWidgetLabel"] { font-size: 0.65rem !important; }
+}
+
+/* Small / older phones (≤ 480px) */
+@media screen and (max-width: 480px) {
+    .header-band h1 { font-size: 1.05rem !important; }
+    .header-band .tagline { display: none !important; } /* reclaim vertical space */
+    .info-day-box .info-day-num { font-size: 1.4rem !important; }
+    .bubble { font-size: 0.83rem !important; }
+    .stat-card .stat-val { font-size: 0.95rem !important; }
+}
 </style>
 """
 
