@@ -21,6 +21,7 @@ import requests
 import logging
 import time
 import os
+import io
 from datetime import datetime
 from sentence_transformers import SentenceTransformer
 from pinecone import Pinecone
@@ -245,7 +246,7 @@ def fetch_live_medals():
         resp.raise_for_status()
         html = resp.json().get("parse", {}).get("text", {}).get("*", "")
 
-        for tbl in pd.read_html(html):
+        for tbl in pd.read_html(io.StringIO(html)):
             cols = [str(c).lower() for c in tbl.columns]
             if "gold" in cols and "silver" in cols and "bronze" in cols:
                 tbl.columns = [str(c).strip() for c in tbl.columns]
@@ -257,7 +258,11 @@ def fetch_live_medals():
 
     except Exception as e:
         logger.error(f"Medal fetch error: {e}")
-        return None, datetime.now().strftime("%I:%M %p"), str(e)
+        # Truncate error — str(e) can contain raw HTML from Wikipedia response
+        err_msg = str(e)
+        if len(err_msg) > 120 or "<" in err_msg:
+            err_msg = "Medal data temporarily unavailable."
+        return None, datetime.now().strftime("%I:%M %p"), err_msg
 
 
 def get_pinecone_vector_count():
@@ -989,6 +994,86 @@ hr { border: none; border-top: 1px solid #E8ECEE !important; margin: 0.8rem 0 !i
 
 /* -- Streamlit spinner tint -- */
 .stSpinner > div { border-color: #00818A !important; }
+
+/* ============================================================
+ * RESPONSIVE - TABLET / iPAD
+ * Streamlit columns don't stack automatically at tablet widths
+ * (~768px–1024px). These rules tighten spacing and ensure the
+ * info panel content stays readable without overflowing.
+ * ============================================================ */
+
+/* iPad portrait & small tablets (≤ 900px) */
+@media screen and (max-width: 900px) {
+    /* Tighten the overall container padding */
+    .block-container {
+        padding-left: 0.75rem !important;
+        padding-right: 0.75rem !important;
+        max-width: 100% !important;
+    }
+
+    /* Stack Streamlit columns vertically */
+    [data-testid="stHorizontalBlock"] {
+        flex-direction: column !important;
+    }
+    [data-testid="stHorizontalBlock"] > [data-testid="stColumn"],
+    [data-testid="stHorizontalBlock"] > [data-testid="column"] {
+        width: 100% !important;
+        flex: 1 1 100% !important;
+        min-width: 0 !important;
+    }
+
+    /* Shrink header for narrower screens */
+    .header-band h1 { font-size: 1.6rem !important; }
+    .header-band { padding: 1.6rem 1rem 1.4rem !important; }
+
+    /* Suggestion pills: 2 per row on narrow screens */
+    [data-testid="stHorizontalBlock"] .stButton button {
+        font-size: 0.72rem !important;
+    }
+
+    /* Keep medal table readable */
+    .medal-table { font-size: 0.75rem; }
+    .medal-country { font-size: 0.72rem !important; }
+    .medal-num { font-size: 0.75rem !important; }
+
+    /* Stat cards: prevent text overflow */
+    .stat-card .stat-val { font-size: 1.2rem !important; }
+    .stat-card .stat-label { font-size: 0.55rem !important; }
+
+    /* Info day box: tighter padding */
+    .info-day-box { padding: 1.1rem 0.8rem 1rem !important; }
+    .info-day-box .info-day-num { font-size: 2rem !important; }
+}
+
+/* iPad landscape (901px – 1180px): keep two columns but tighten */
+@media screen and (min-width: 901px) and (max-width: 1180px) {
+    .block-container {
+        padding-left: 1rem !important;
+        padding-right: 1rem !important;
+    }
+    .header-band h1 { font-size: 1.9rem !important; }
+    .medal-country { font-size: 0.72rem !important; }
+    .medal-num { font-size: 0.75rem !important; }
+    .stat-card .stat-val { font-size: 1.3rem !important; }
+}
+
+/* Prevent any block from forcing horizontal scroll on small viewports */
+@media screen and (max-width: 1180px) {
+    body, .stApp { overflow-x: hidden !important; }
+    .block-container { overflow-x: hidden !important; }
+
+    /* Text input: full-width touch target */
+    .stTextInput input {
+        min-height: 52px !important;
+        font-size: 1rem !important;
+    }
+
+    /* Larger tap targets for buttons on touch screens */
+    .stButton button { min-height: 48px !important; }
+
+    /* Language flag buttons: shrink label font */
+    .lang-btn { font-size: 0.75rem !important; }
+}
 </style>
 """
 
